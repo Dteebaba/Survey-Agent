@@ -1,4 +1,6 @@
+# llm_agent.py
 import os
+import json
 from typing import Dict, Any
 
 from dotenv import load_dotenv
@@ -21,8 +23,8 @@ def summarize_dataset(eda: Dict) -> str:
         "You are analyzing a tabular dataset used for federal opportunities / solicitations.\n"
         "Here is a compact EDA summary:\n"
         f"{eda}\n\n"
-        "Explain what this dataset seems to contain, what the important columns are (dates, set-asides, types, agencies), "
-        "and how it could be filtered for business development purposes."
+        "Explain what this dataset seems to contain, what the important columns are "
+        "(dates, set-asides, types, agencies), and how it could be filtered."
     )
 
     resp = client.chat.completions.create(
@@ -42,7 +44,7 @@ def create_llm_plan(eda: Dict, user_request: str) -> Dict[str, Any]:
       - columns mapping
       - set_aside_column
       - opportunity_type_column
-      - date columns
+      - date/due columns
       - set_aside_patterns
       - opportunity_type_patterns
     """
@@ -60,7 +62,7 @@ The user request is:
    - The column used as solicitation number / notice id.
    - The title / description column.
    - The agency / office column.
-   - The solicitation date column (usually PostedDate / NoticeDate).
+   - The solicitation date column (PostedDate / NoticeDate).
    - The due date / response deadline column (if present).
    - The opportunity type column (Type, Notice Type, etc.).
    - The set-aside column (TypeOfSetAside, TypeOfSetAsideDescription, etc.).
@@ -79,7 +81,7 @@ The user request is:
         "uilink": "..."
      }},
      "set_aside_patterns": {{
-        "SDVOSB": [... patterns ...],
+        "SDVOSB": [...],
         "WOSB": [...],
         "TOTAL SMALL BUSINESS SET ASIDE": [...],
         "VETERAN OWNED SMALL BUSINESS (VOSB)": [...],
@@ -95,7 +97,7 @@ The user request is:
      "plan_explanation": "Short explanation in plain language of how to filter and normalize."
    }}
 
-3. Only include keys you are confident about. Use null for anything that doesn't exist.
+3. Only include keys you are confident about. Use null for missing.
 4. Return ONLY valid JSON. No commentary.
 """
 
@@ -109,11 +111,9 @@ The user request is:
     )
     content = resp.choices[0].message.content
 
-    import json
     try:
         plan = json.loads(content)
     except Exception:
-        # Fallback to empty safe structure
         plan = {
             "columns": {},
             "set_aside_patterns": {},
