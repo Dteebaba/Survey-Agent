@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import streamlit.components.v1 as components
 from pathlib import Path
@@ -16,120 +15,190 @@ from data_engine import (
 from llm_agent import summarize_dataset, create_llm_plan
 
 
+# -------------------------------------------------
+# PAGE CONFIG
+# -------------------------------------------------
 st.set_page_config(
     page_title="Survey Agent",
     page_icon="📊",
     layout="wide"
 )
 
-# Load CSS
+# -------------------------------------------------
+# LOAD CUSTOM CSS
+# -------------------------------------------------
 css_path = Path("assets/style.css")
 if css_path.exists():
     with open(css_path) as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-# Login gate
+# -------------------------------------------------
+# AUTHENTICATION
+# -------------------------------------------------
 check_access()
 
-# Init navigation state
+# -------------------------------------------------
+# INITIALIZE NAVIGATION STATE
+# -------------------------------------------------
 if "page" not in st.session_state:
-    st.session_state.page = "home"
+    st.session_state.page = "home"   # Start on dashboard homepage
+
+# -------------------------------------------------
+# NAVIGATION HELPER
+# -------------------------------------------------
+def goto(page_name: str):
+    st.session_state.page = page_name
+    st.rerun()
+
+# -------------------------------------------------
+# TOP NAVBAR (Custom, NOT Streamlit tabs)
+# -------------------------------------------------
+st.markdown("""
+<style>
+.navbar {
+    background-color: #ffffff;
+    padding: 12px 24px;
+    border-radius: 16px;
+    box-shadow: 0px 2px 12px rgba(0,0,0,0.07);
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    margin-bottom: 18px;
+}
+.nav-item {
+    font-weight: 600;
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: 8px;
+}
+.nav-item:hover {
+    background-color: #E5E7EB;
+}
+.active-nav {
+    background-color: #D1FAE5;
+    color: #065F46;
+}
+</style>
+""", unsafe_allow_html=True)
+
+nav_html = f"""
+<div class="navbar">
+    <div class="nav-item {'active-nav' if st.session_state.page=='home' else ''}"
+         onclick="window.location.href='?nav=home';">
+         🏠 Home
+    </div>
+
+    <div class="nav-item {'active-nav' if st.session_state.page=='survey' else ''}"
+         onclick="window.location.href='?nav=survey';">
+         📁 Document Assistant
+    </div>
+
+    <div class="nav-item {'active-nav' if st.session_state.page=='writer' else ''}"
+         onclick="window.location.href='?nav=writer';">
+         🧾 Proposal Writer
+    </div>
+
+    <div style="margin-left:auto;" class="nav-item">
+        Role: <b>{st.session_state.get('role', 'user')}</b>
+    </div>
+
+    <div class="nav-item" onclick="window.location.href='?logout=true';">
+        Logout
+    </div>
+</div>
+"""
+
+st.markdown(nav_html, unsafe_allow_html=True)
+
+# Handle redirects
+nav_param = st.query_params.get("nav")
+logout_param = st.query_params.get("logout")
+
+if nav_param in ["home", "survey", "writer"]:
+    st.session_state.page = nav_param
+elif logout_param:
+    st.session_state.clear()
+    st.success("You have been logged out.")
+    st.rerun()
 
 
-# ---------- PAGE SWITCHER ----------
-
+# -------------------------------------------------
+# PAGE 1: HOME / DASHBOARD
+# -------------------------------------------------
 def show_home():
     st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
-
-    st.markdown(
-        """
+    st.markdown("""
         <div class='app-card'>
             <div class='app-title'>📊 Survey Agent</div>
             <div class='app-subtitle'>
-                AI-assisted analytics for federal opportunity spreadsheets. 
-                Choose what you want to do below.
+                AI-assisted analytics platform for federal opportunity spreadsheets.
+                Choose a workspace below.
             </div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    """, unsafe_allow_html=True)
 
     st.markdown("<div class='feature-grid'>", unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2)
+    # Feature 1 — Survey Agent
+    st.markdown("""
+        <div class='feature-card'>
+            <div class='feature-title'>📁 Document Assistant</div>
+            <div class='feature-desc'>
+                Upload Excel/CSV → AI EDA → normalization → output filtered Excel/CSV.
+            </div>
+    """, unsafe_allow_html=True)
+    if st.button("Open Survey Agent"):
+        goto("survey")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    with col1:
-        st.markdown(
-            """
-            <div class='feature-card'>
-                <div class='feature-title'>📁 Survey / Document Assistant</div>
-                <div class='feature-desc'>
-                    Upload an Excel/CSV, let the AI understand it, normalize set-asides & opportunity types,
-                    and export a clean, filtered table.
-                </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if st.button("Open Survey Agent"):
-            st.session_state.page = "survey"
-            st.experimental_rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with col2:
-        st.markdown(
-            """
-            <div class='feature-card'>
-                <div class='feature-title'>🧾 Proposal Writer</div>
-                <div class='feature-desc'>
-                    Use your custom GPT to draft proposals and responses based on exported results.
-                </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if st.button("Open Proposal Writer"):
-            st.session_state.page = "writer"
-            st.experimental_rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+    # Feature 2 — Proposal Writer
+    st.markdown("""
+        <div class='feature-card'>
+            <div class='feature-title'>🧾 Proposal Writer</div>
+            <div class='feature-desc'>
+                Use your custom GPT to write proposals directly inside the app.
+            </div>
+    """, unsafe_allow_html=True)
+    if st.button("Open Proposal Writer"):
+        goto("writer")
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def show_survey_agent():
+
+# -------------------------------------------------
+# PAGE 2: SURVEY / DOCUMENT ASSISTANT
+# -------------------------------------------------
+def show_survey():
     st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
 
-    st.markdown(
-        """
+    st.markdown("""
         <div class='app-card'>
-            <div class='app-title'>📁 Survey / Document Assistant</div>
+            <div class='app-title'>📁 Document Assistant</div>
             <div class='app-subtitle'>
-                Upload your opportunity spreadsheet, let the AI map the structure, normalize set-asides & types,
-                and export only the essential columns.
+                Upload a dataset → AI analyzes → normalizes → filters → export clean output.
             </div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    """, unsafe_allow_html=True)
 
     if st.button("← Back to Home"):
-        st.session_state.page = "home"
-        st.experimental_rerun()
+        goto("home")
 
     # Upload
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    uploaded_file = st.file_uploader("Upload Excel or CSV", type=["csv", "xlsx", "xls"])
+    uploaded_file = st.file_uploader("📂 Upload Excel or CSV", type=["csv", "xlsx", "xls"])
     st.markdown("</div>", unsafe_allow_html=True)
 
     if not uploaded_file:
-        st.info("Upload a file to begin.")
-        st.markdown("</div>", unsafe_allow_html=True)
         return
 
+    # Load
     try:
         df = load_dataset(uploaded_file)
     except Exception as e:
-        st.error(f"Could not load file: {e}")
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.error(f"Failed to load file: {e}")
         return
 
     st.markdown(
@@ -140,7 +209,7 @@ def show_survey_agent():
     with st.expander("Preview first 20 rows"):
         st.dataframe(df.head(20))
 
-    # EDA + AI summary
+    # AI summary
     with st.spinner("Analyzing dataset structure..."):
         eda = build_full_eda(df)
         try:
@@ -149,33 +218,27 @@ def show_survey_agent():
             ai_summary = f"(AI summary failed: {e})"
 
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    st.markdown("### 🤖 AI understanding of your dataset", unsafe_allow_html=True)
+    st.markdown("### 🤖 AI Dataset Understanding", unsafe_allow_html=True)
     st.write(ai_summary)
     st.markdown("</div>", unsafe_allow_html=True)
 
     # User instruction
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    st.markdown("### 🧠 What do you want to extract?", unsafe_allow_html=True)
+    st.markdown("### 🧠 What do you want to extract or filter?", unsafe_allow_html=True)
     user_request = st.text_area(
         "Instruction",
         placeholder="e.g. Give me SDVOSB solicitations between 2024-02-01 and 2024-02-15...",
-        height=130,
+        height=130
     )
     run_btn = st.button("🚀 Run analysis")
     st.markdown("</div>", unsafe_allow_html=True)
 
     if not run_btn:
-        st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    if not user_request.strip():
-        st.warning("Please provide an instruction for the agent.")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    # AI plan + normalization
+    # AI plan
     with st.status("Working on your request...", expanded=True) as status:
-        status.update(label="🔍 Interpreting your instruction with AI...", state="running")
+        status.update(label="🔍 Interpreting your instruction...", state="running")
 
         try:
             plan = create_llm_plan(eda, user_request)
@@ -184,18 +247,18 @@ def show_survey_agent():
             status.update(label="❌ Failed", state="error")
             return
 
-        columns_map = plan.get("columns", {}) or {}
-        sa_patterns = plan.get("set_aside_patterns", {}) or {}
-        opp_patterns = plan.get("opportunity_type_patterns", {}) or {}
+        columns_map = plan.get("columns", {})
+        sa_patterns = plan.get("set_aside_patterns", {})
+        opp_patterns = plan.get("opportunity_type_patterns", {})
         plan_explanation = plan.get("plan_explanation", "")
 
-        set_aside_col = columns_map.get("set_aside_column") or "TypeOfSetAsideDescription"
         type_col = columns_map.get("opportunity_type_column") or "Type"
+        sa_col = columns_map.get("set_aside_column") or "TypeOfSetAsideDescription"
 
-        status.update(label="📚 Normalizing set-asides and types...", state="running")
+        status.update(label="📚 Normalizing set-asides & types...", state="running")
 
         df2 = df.copy()
-        df2 = normalize_set_aside_column(df2, set_aside_col, ai_patterns=sa_patterns)
+        df2 = normalize_set_aside_column(df2, sa_col, ai_patterns=sa_patterns)
         df2 = normalize_opportunity_type_column(df2, type_col, ai_patterns=opp_patterns)
 
         status.update(label="📦 Building final output table...", state="running")
@@ -204,16 +267,12 @@ def show_survey_agent():
 
         status.update(label="✅ Done!", state="complete")
 
-    # Results + download
+    # Results
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    st.markdown("### 📌 What the agent did", unsafe_allow_html=True)
-    st.write(
-        plan_explanation
-        or "The agent identified likely columns, applied normalization using AI patterns plus safe fallbacks, "
-           "and built a clean table with the required columns."
-    )
+    st.markdown("### 📌 What the AI Did", unsafe_allow_html=True)
+    st.write(plan_explanation or "AI generated column mappings and normalization rules.")
 
-    st.markdown("### 📋 Filtered & normalized results", unsafe_allow_html=True)
+    st.markdown("### 📋 Final Results", unsafe_allow_html=True)
     st.write(f"Rows in final output: **{len(final_df)}**")
 
     if len(final_df) == 0:
@@ -242,10 +301,10 @@ def show_survey_agent():
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Embedded GPT directly under downloads
+    # Embedded GPT directly beneath downloads
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    st.markdown("### 🧾 Proposal & write-up assistant", unsafe_allow_html=True)
-    st.write("Use your custom GPT below to draft proposals using the exported data.")
+    st.markdown("### 🧾 Proposal & Write-up Assistant", unsafe_allow_html=True)
+    st.write("Use your custom GPT to generate proposals using the exported file.")
     components.iframe(
         "https://chatgpt.com/g/g-6926512d2a5c8191b7260d3fe8d2b5d9-sam-excel-solicitation-analyzer",
         height=800,
@@ -255,24 +314,23 @@ def show_survey_agent():
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def show_proposal_writer():
+# -------------------------------------------------
+# PAGE 3: PROPOSAL WRITER (Standalone)
+# -------------------------------------------------
+def show_writer():
     st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
 
-    st.markdown(
-        """
+    st.markdown("""
         <div class='app-card'>
             <div class='app-title'>🧾 Proposal Writer</div>
             <div class='app-subtitle'>
-                Direct access to your custom GPT for drafting responses, summaries, and proposals.
+                Your custom GPT is embedded below for writing summaries and proposals.
             </div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    """, unsafe_allow_html=True)
 
     if st.button("← Back to Home"):
-        st.session_state.page = "home"
-        st.experimental_rerun()
+        goto("home")
 
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
     components.iframe(
@@ -284,11 +342,12 @@ def show_proposal_writer():
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-# ---------- MAIN ROUTER ----------
-
+# -------------------------------------------------
+# ROUTER
+# -------------------------------------------------
 if st.session_state.page == "home":
     show_home()
 elif st.session_state.page == "survey":
-    show_survey_agent()
+    show_survey()
 elif st.session_state.page == "writer":
-    show_proposal_writer()
+    show_writer()
