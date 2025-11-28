@@ -1,4 +1,3 @@
-# auth.py
 import streamlit as st
 
 
@@ -10,8 +9,8 @@ def check_access():
     if st.session_state.get("authenticated"):
         return  # already logged in
 
-    st.title("🔐 Survey Agent Login")
-    st.write("Enter the access code given to you by the admin.")
+    st.title("Survey Agent – Sign In")
+    st.write("Please enter the access code provided to you by the administrator.")
 
     code = st.text_input("Access code", type="password")
     login = st.button("Sign in")
@@ -20,11 +19,12 @@ def check_access():
         codes = st.secrets.get("access_codes", {})
         if code in codes:
             st.session_state["authenticated"] = True
-            st.session_state["role"] = codes[code]  # "admin" / "worker" / etc.
-            st.success("Access granted. Loading app...")
+            st.session_state["role"] = codes[code]  # e.g. "admin" / "user"
+            st.success("Access granted. Loading workspace...")
             st.rerun()
         else:
             st.error("Invalid access code. Please contact your admin.")
             st.stop()
 
+    # stop the rest of the app until authenticated
     st.stop()
