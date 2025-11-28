@@ -1,0 +1,63 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+    background-color: #F3F4F6;
+    color: #111827;
+}
+
+.main {
+    padding: 2rem;
+}
+
+.app-shell {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.app-card {
+    background: white;
+    border-radius: 18px;
+    border: 1px solid #E5E7EB;
+    padding: 1.4rem 1.6rem;
+    margin-bottom: 1.1rem;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06);
+}
+
+.app-title {
+    font-size: 1.6rem;
+    font-weight: 700;
+    margin-bottom: 0.15rem;
+}
+
+.app-subtitle {
+    font-size: 0.9rem;
+    color: #6B7280;
+    margin-bottom: 1.1rem;
+}
+
+.data-meta {
+    font-size: 0.85rem;
+    color: #6B7280;
+    margin-bottom: 0.5rem;
+}
+
+.helper-text {
+    font-size: 0.85rem;
+    color: #6B7280;
+}
+
+/* Buttons */
+.stButton>button {
+    background: linear-gradient(135deg, #4F46E5, #6366F1);
+    color: white;
+    border-radius: 999px;
+    padding: 0.55rem 1.2rem;
+    border: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.stButton>button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 25px rgba(79, 70, 229, 0.3);
+    cursor: pointer;
+}
