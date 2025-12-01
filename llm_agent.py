@@ -9,48 +9,57 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not OPENAI_API_KEY:
-    raise ValueError("OPENAI_API_KEY is missing in environment / Streamlit secrets.")
+    raise ValueError("OPENAI_API_KEY is missing in environment variables or Streamlit secrets.")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 
-# ---------------------------------------------------------
-# SUMMARIZE DATASET (no changes needed)
-# ---------------------------------------------------------
+# -------------------------------------------------
+# LLM: Summarize Dataset (Safe)
+# -------------------------------------------------
 def summarize_dataset(eda: Dict) -> str:
-    msg = (
-        "You are analyzing a tabular dataset used for federal opportunities / solicitations.\n"
+    """
+    Ask the LLM for a human-readable dataset description.
+    This is NOT JSON. No changes needed here.
+    """
+
+    prompt = (
+        "You are a concise data analyst for federal opportunity datasets.\n"
         "Here is a compact EDA summary:\n"
         f"{eda}\n\n"
-        "Explain what this dataset seems to contain, what the important columns are "
-        "(dates, set-asides, types, agencies), and how it could be filtered."
+        "Explain in plain language:\n"
+        "- What this dataset likely contains\n"
+        "- Important fields (dates, agencies, set-asides, types)\n"
+        "- What kinds of filtering may be possible\n"
     )
 
     resp = client.chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
-            {"role": "system", "content": "You are a concise data analyst for federal opportunity spreadsheets."},
-            {"role": "user", "content": msg},
+            {"role": "system", "content": "Provide short, clear, neutral explanations."},
+            {"role": "user", "content": prompt},
         ],
         temperature=0.2,
     )
+
     return resp.choices[0].message.content
 
 
-# ---------------------------------------------------------
-# CREATE LLM PLAN (fully patched)
-# ---------------------------------------------------------
+# -------------------------------------------------
+# LLM: Planning for Column Mapping + Patterns
+# -------------------------------------------------
 def create_llm_plan(eda: Dict, user_request: str) -> Dict[str, Any]:
     """
-    Generates a deterministic JSON plan the Python code can rely on.
+    Produce a deterministic JSON planning object for:
+      - column mappings
+      - set-aside patterns
+      - opportunity type patterns
+      - filtering explanation
     """
 
-    plan_prompt = {
-        "eda": eda,
-        "user_request": user_request,
-        "instructions": """
-Return a JSON object ONLY, following this exact structure:
-
+    # SINGLE, VERY CLEAR system prompt so model never speaks outside JSON
+    SYSTEM_PROMPT = """
+You output ONLY valid JSON that fits this exact schema:
 {
   "columns": {
     "solicitation_number": "",
@@ -80,35 +89,63 @@ Return a JSON object ONLY, following this exact structure:
 }
 
 RULES:
-- Output ONLY valid JSON. No text outside the JSON.
-- Use an empty string for unknown columns.
+- Output ONLY JSON. Never speak outside the object.
+- Do NOT use markdown.
+- Use empty strings for unknown column names.
 - Use empty arrays for unknown patterns.
-- Plan explanation must be a SHORT sentence.
+- plan_explanation MUST be a short summarizing sentence.
 """
+
+    user_payload = {
+        "eda": eda,
+        "user_request": user_request,
+        "instruction": "Infer dataset columns and patterns based on the EDA and user request."
     }
 
-    # ----- CRITICAL FIX: Force JSON output -----
+    # CRITICAL: response_format forces JSON output
     resp = client.chat.completions.create(
         model="gpt-4.1-mini",
-        response_format={"type": "json_object"},   # <- Guarantees valid JSON
+        response_format={"type": "json_object"},
         messages=[
-            {"role": "system", "content": "You output ONLY valid JSON following the schema. No commentary."},
-            {"role": "user", "content": json.dumps(plan_prompt)},
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": json.dumps(user_payload)},
         ],
         temperature=0.0,
     )
 
     content = resp.choices[0].message.content
 
-    # Safety fallback
+    # HARDEN: Guarantee a parsed JSON object
     try:
         plan = json.loads(content)
     except Exception:
-        plan = {
-            "columns": {},
-            "set_aside_patterns": {},
-            "opportunity_type_patterns": {},
-            "plan_explanation": "AI plan failed to parse; using fallback patterns only.",
-        }
+        plan = {}
+
+    # Guarantee schema structure even if LLM misses fields
+    plan.setdefault("columns", {})
+    plan.setdefault("set_aside_patterns", {})
+    plan.setdefault("opportunity_type_patterns", {})
+    plan.setdefault("plan_explanation", "")
+
+    # Ensure all required keys exist
+    required_columns = [
+        "solicitation_number", "title", "agency", "solicitation_date",
+        "due_date", "opportunity_type_column", "set_aside_column", "uilink"
+    ]
+    for key in required_columns:
+        plan["columns"].setdefault(key, "")
+
+    required_sets = [
+        "SDVOSB", "WOSB", "TOTAL SMALL BUSINESS SET ASIDE",
+        "VETERAN OWNED SMALL BUSINESS (VOSB)",
+        "SBA Certified Economically Disadvantaged WOSB (EDWOSB) Program Set-Aside (FAR 19.15)",
+        "NO SET-ASIDE"
+    ]
+    for key in required_sets:
+        plan["set_aside_patterns"].setdefault(key, [])
+
+    required_types = ["Solicitation", "Presolicitation", "Sources Sought", "Other"]
+    for key in required_types:
+        plan["opportunity_type_patterns"].setdefault(key, [])
 
     return plan
