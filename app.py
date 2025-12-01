@@ -24,7 +24,14 @@ st.set_page_config(
     layout="wide",
 )
 
+# -------------------------------------------------
+# LOAD CUSTOM CSS THEME (Notion-style)
+# -------------------------------------------------
+css_path = Path("assets/style.css")
+if css_path.exists():
+    st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
 
+    
 # -------------------------------------------------
 # AUTH & SESSION STATE
 # -------------------------------------------------

@@ -1,9 +1,11 @@
-/* assets/style.css */
+/* -------------------------------------------------
+   GLOBAL LAYOUT + TYPOGRAPHY 
+   ------------------------------------------------- */
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
-    background: linear-gradient(135deg, #0f172a 0%, #020617 40%, #0f766e 100%);
-    color: #111827;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    background: #F7F8FA;
+    color: #1F2937;
 }
 
 .main {
@@ -11,108 +13,178 @@ body {
 }
 
 .app-shell {
-    max-width: 1180px;
+    max-width: 1080px;
     margin: 0 auto;
 }
 
+/* -------------------------------------------------
+   CARDS (Notion-like white surfaces)
+   ------------------------------------------------- */
+
 .app-card {
-    background: #ffffff;
-    border-radius: 18px;
+    background: #FFFFFF;
+    border-radius: 14px;
+    padding: 1.6rem 1.8rem;
     border: 1px solid #E5E7EB;
-    padding: 1.4rem 1.6rem;
     margin-bottom: 1.1rem;
-    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+    transition: 0.2s ease-in-out;
 }
 
+.app-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+}
+
+/* -------------------------------------------------
+   HEADERS & TEXT
+   ------------------------------------------------- */
+
 .app-title {
-    font-size: 1.5rem;
+    font-size: 1.6rem;
     font-weight: 700;
-    margin-bottom: 0.15rem;
+    margin-bottom: 0.25rem;
+    color: #111827;
 }
 
 .app-subtitle {
     font-size: 0.95rem;
     color: #6B7280;
-    margin-bottom: 1.1rem;
+    margin-bottom: 1.3rem;
 }
 
 .data-meta {
     font-size: 0.85rem;
     color: #6B7280;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.6rem;
 }
 
-/* Dashboard feature cards */
+/* -------------------------------------------------
+   FEATURE GRID
+   ------------------------------------------------- */
 
 .feature-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+    gap: 1.3rem;
 }
 
 .feature-card {
-    background: #ffffff;
-    border-radius: 16px;
+    background: #FFFFFF;
+    border-radius: 14px;
     border: 1px solid #E5E7EB;
-    padding: 1.1rem 1.2rem;
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    padding: 1.1rem 1.3rem;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .feature-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.22);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.10);
 }
 
 .feature-title {
+    font-size: 1rem;
     font-weight: 600;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.3rem;
+    color: #111827;
 }
 
 .feature-desc {
     font-size: 0.85rem;
     color: #6B7280;
-    margin-bottom: 0.7rem;
+    line-height: 1.35;
 }
 
-/* Buttons */
+/* -------------------------------------------------
+   STREAMLIT BUTTONS (Minimal, Notion-like)
+   ------------------------------------------------- */
 
-.stButton>button {
-    background: linear-gradient(135deg, #0F766E, #14B8A6);
-    color: white;
-    border-radius: 999px;
-    padding: 0.55rem 1.4rem;
-    border: none;
-    font-weight: 600;
+.stButton > button {
+    background: #FFFFFF;
+    color: #111827;
+    border-radius: 8px;
+    padding: 0.55rem 1.3rem;
+    border: 1px solid #D1D5DB;
+    font-weight: 500;
     font-size: 0.9rem;
+    transition: all 0.15s ease-in-out;
 }
 
-.stButton>button:hover {
+.stButton > button:hover {
+    background: #F3F4F6;
+    border-color: #9CA3AF;
     transform: translateY(-1px);
-    box-shadow: 0 10px 25px rgba(20, 184, 166, 0.35);
-    cursor: pointer;
 }
 
-/* External link buttons */
+/* -------------------------------------------------
+   TEXT AREA / INPUT FIELDS
+   ------------------------------------------------- */
 
-.link-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
+textarea, input[type="text"] {
+    border-radius: 8px !important;
+    border: 1px solid #D1D5DB !important;
+    background: #FFFFFF !important;
+    padding: 0.6rem !important;
+    font-size: 0.9rem !important;
+    color: #111827 !important;
 }
 
-.link-button {
+/* -------------------------------------------------
+   FILE UPLOADER
+   ------------------------------------------------- */
+
+section[data-testid="stFileUploader"] {
+    border-radius: 12px;
+    padding: 1rem;
+    border: 1px dashed #D1D5DB;
+    background: #FFFFFF;
+}
+
+section[data-testid="stFileUploader"]:hover {
+    border-color: #9CA3AF;
+}
+
+/* -------------------------------------------------
+   EXTERNAL TOOL BUTTONS (Simplified Notion Pills)
+   ------------------------------------------------- */
+
+.ext-btn {
     display: inline-block;
-    padding: 0.45rem 0.9rem;
+    margin-right: 0.5rem;
+    margin-bottom: 0.5rem;
+    padding: 0.45rem 0.95rem;
     border-radius: 999px;
+    background: #F3F4F6;
+    color: #111827 !important;
     border: 1px solid #D1D5DB;
     font-size: 0.85rem;
     text-decoration: none;
-    color: #0F172A;
-    background-color: #F9FAFB;
+    font-weight: 500;
+    transition: 0.15s ease-in-out;
 }
 
-.link-button:hover {
-    background-color: #E5E7EB;
+.ext-btn:hover {
+    background: #E5E7EB;
 }
+
+/* -------------------------------------------------
+   TABLE / DATAFRAME CLEANUP
+   ------------------------------------------------- */
+
+.dataframe {
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+/* -------------------------------------------------
+   STATUS BOX
+   ------------------------------------------------- */
+
+[data-testid="stStatus"] {
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    background: #FFFFFF;
+    border: 1px solid #E5E7EB;
+}
+
