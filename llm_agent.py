@@ -14,10 +14,10 @@ if not OPENAI_API_KEY:
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 
+# ---------------------------------------------------------
+# SUMMARIZE DATASET (no changes needed)
+# ---------------------------------------------------------
 def summarize_dataset(eda: Dict) -> str:
-    """
-    Ask the LLM to describe the dataset in plain language.
-    """
     msg = (
         "You are analyzing a tabular dataset used for federal opportunities / solicitations.\n"
         "Here is a compact EDA summary:\n"
@@ -37,79 +37,70 @@ def summarize_dataset(eda: Dict) -> str:
     return resp.choices[0].message.content
 
 
+# ---------------------------------------------------------
+# CREATE LLM PLAN (fully patched)
+# ---------------------------------------------------------
 def create_llm_plan(eda: Dict, user_request: str) -> Dict[str, Any]:
     """
-    Create a JSON plan with:
-      - columns mapping
-      - set_aside_column
-      - opportunity_type_column
-      - date/due columns
-      - set_aside_patterns
-      - opportunity_type_patterns
+    Generates a deterministic JSON plan the Python code can rely on.
     """
-    plan_prompt = f"""
-You are helping build a deterministic Python pipeline for a federal solicitation dataset.
 
-We already computed this EDA:
-{eda}
+    plan_prompt = {
+        "eda": eda,
+        "user_request": user_request,
+        "instructions": """
+Return a JSON object ONLY, following this exact structure:
 
-The user request is:
-\"\"\"{user_request}\"\"\"
+{
+  "columns": {
+    "solicitation_number": "",
+    "title": "",
+    "agency": "",
+    "solicitation_date": "",
+    "due_date": "",
+    "opportunity_type_column": "",
+    "set_aside_column": "",
+    "uilink": ""
+  },
+  "set_aside_patterns": {
+    "SDVOSB": [],
+    "WOSB": [],
+    "TOTAL SMALL BUSINESS SET ASIDE": [],
+    "VETERAN OWNED SMALL BUSINESS (VOSB)": [],
+    "SBA Certified Economically Disadvantaged WOSB (EDWOSB) Program Set-Aside (FAR 19.15)": [],
+    "NO SET-ASIDE": []
+  },
+  "opportunity_type_patterns": {
+    "Solicitation": [],
+    "Presolicitation": [],
+    "Sources Sought": [],
+    "Other": []
+  },
+  "plan_explanation": ""
+}
 
-
-1. From the EDA, identify:
-   - The column used as solicitation number / notice id.
-   - The title / description column.
-   - The agency / office column.
-   - The solicitation date column (PostedDate / NoticeDate).
-   - The due date / response deadline column (if present).
-   - The opportunity type column (Type, Notice Type, etc.).
-   - The set-aside column (TypeOfSetAside, TypeOfSetAsideDescription, etc.).
-   - The UiLink column if present.
-
-2. Build a JSON object with:
-   {{
-     "columns": {{
-        "solicitation_number": "...",
-        "title": "...",
-        "agency": "...",
-        "solicitation_date": "...",
-        "due_date": "...",
-        "opportunity_type_column": "...",
-        "set_aside_column": "...",
-        "uilink": "..."
-     }},
-     "set_aside_patterns": {{
-        "SDVOSB": [...],
-        "WOSB": [...],
-        "TOTAL SMALL BUSINESS SET ASIDE": [...],
-        "VETERAN OWNED SMALL BUSINESS (VOSB)": [...],
-        "SBA Certified Economically Disadvantaged WOSB (EDWOSB) Program Set-Aside (FAR 19.15)": [...],
-        "NO SET-ASIDE": [...]
-     }},
-     "opportunity_type_patterns": {{
-        "Solicitation": [...],
-        "Presolicitation": [...],
-        "Sources Sought": [...],
-        "Other": []
-     }},
-     "plan_explanation": "Short explanation in plain language of how to filter and normalize."
-   }}
-
-3. Only include keys you are confident about. Use null for missing.
-4. Return ONLY valid JSON. No commentary.
+RULES:
+- Output ONLY valid JSON. No text outside the JSON.
+- Use an empty string for unknown columns.
+- Use empty arrays for unknown patterns.
+- Plan explanation must be a SHORT sentence.
 """
+    }
 
+    # ----- CRITICAL FIX: Force JSON output -----
     resp = client.chat.completions.create(
         model="gpt-4.1-mini",
+        response_format={"type": "json_object"},   # <- Guarantees valid JSON
         messages=[
-            {"role": "system", "content": "You output strict JSON only. No explanations."},
-            {"role": "user", "content": plan_prompt},
+            {"role": "system", "content": "You output ONLY valid JSON following the schema. No commentary."},
+            {"role": "user", "content": json.dumps(plan_prompt)},
         ],
-        temperature=0.1,
+        temperature=0.0,
     )
+
     content = resp.choices[0].message.content
 
+    # Safety fallback
     try:
         plan = json.loads(content)
     except Exception:
@@ -119,4 +110,5 @@ The user request is:
             "opportunity_type_patterns": {},
             "plan_explanation": "AI plan failed to parse; using fallback patterns only.",
         }
+
     return plan
