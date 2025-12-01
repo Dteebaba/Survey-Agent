@@ -15,13 +15,12 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 # -------------------------------------------------
-# LLM: Summarize Dataset (human-facing text)
+# SUMMARIZE DATASET (Human-readable)
 # -------------------------------------------------
 def summarize_dataset(eda: Dict) -> str:
     """
-    Ask the LLM for a human-readable dataset description.
+    Ask the LLM for a plain-language summary of the dataset.
     """
-
     prompt = (
         "You are a concise data analyst for federal opportunity datasets.\n"
         "Here is a compact EDA summary:\n"
@@ -29,7 +28,7 @@ def summarize_dataset(eda: Dict) -> str:
         "Explain in plain language:\n"
         "- What this dataset likely contains\n"
         "- Important fields (dates, agencies, set-asides, types)\n"
-        "- What kinds of filtering may be possible\n"
+        "- What filters might be useful\n"
     )
 
     resp = client.chat.completions.create(
@@ -45,15 +44,16 @@ def summarize_dataset(eda: Dict) -> str:
 
 
 # -------------------------------------------------
-# LLM: Create structured plan (columns + patterns + filters)
+# CREATE LLM PLAN (columns + patterns + filters)
 # -------------------------------------------------
 def create_llm_plan(eda: Dict, user_request: str) -> Dict[str, Any]:
     """
-    Produce a deterministic JSON planning object for:
+    Produce a deterministic JSON object that contains:
       - column mappings
       - set-aside patterns
       - opportunity type patterns
-      - row-level filters based on the user request
+      - row-level filters derived from the user request
+      - a short human explanation
     """
 
     SYSTEM_PROMPT = """
@@ -84,64 +84,82 @@ You output ONLY valid JSON that fits this exact schema:
     "Sources Sought": [],
     "Other": []
   },
-  "filters": [
-    {
-      "column": "Normalized Set Aside",
-      "operator": "in",
-      "value": ["SDVOSB"]
-    }
-  ],
+  "filters": [],
   "plan_explanation": ""
 }
 
-IMPORTANT:
+-----------------------------------------------------
+COLUMN NAMES FOR FILTERING (FINAL OUTPUT COLUMN NAMES)
+-----------------------------------------------------
+All filters MUST use these exact names:
 
-- The EDA describes the RAW columns, but the final Python table uses these standardized column names:
-  - "Solicitation Number"
-  - "Title"
-  - "Agency"
-  - "Solicitation Date"
-  - "Due Date"
-  - "Opportunity Type"
-  - "Normalized Set Aside"
-  - "UiLink"
+- "Solicitation Number"
+- "Title"
+- "Agency"
+- "Solicitation Date"
+- "Due Date"
+- "Opportunity Type"
+- "Normalized Set Aside"
+- "UiLink"
 
-- The filters MUST refer to these FINAL column names only.
+-----------------------------------------------------
+SUPPORTED FILTER OPERATORS
+-----------------------------------------------------
 
-Allowed operators in "filters":
-- "in"        -> value: list of values (e.g. ["SDVOSB", "WOSB"])
-- "equals"    -> value: a single scalar (string or number)
-- "contains"  -> value: a single string, case-insensitive substring match
-- "between"   -> value: list of two ISO8601 date strings ["YYYY-MM-DD", "YYYY-MM-DD"]
+1. "in"
+   Example:
+   { "column": "Normalized Set Aside", "operator": "in", "value": ["SDVOSB"] }
 
-Examples:
-- Filter to SDVOSB only:
-  { "column": "Normalized Set Aside", "operator": "in", "value": ["SDVOSB"] }
+2. "equals"
+   Example:
+   { "column": "Agency", "operator": "equals", "value": "USACE" }
 
-- Filter to solicitations between 2024-02-01 and 2024-02-15:
-  { "column": "Solicitation Date", "operator": "between", "value": ["2024-02-01", "2024-02-15"] }
+3. "contains"
+   Example:
+   { "column": "Title", "operator": "contains", "value": "construction" }
 
-- Filter to only "Solicitation" opportunity type:
-  { "column": "Opportunity Type", "operator": "in", "value": ["Solicitation"] }
+4. "between"   (only for absolute dates)
+   Example:
+   { "column": "Solicitation Date", "operator": "between",
+     "value": ["2024-02-01", "2024-02-15"] }
 
-RULES:
-- Output ONLY JSON. Never speak outside the object.
-- Do NOT use markdown.
-- Use empty strings for unknown column names.
-- Use empty arrays for unknown patterns.
-- Use an empty list for "filters" if you cannot infer anything.
-- plan_explanation MUST be a short summarizing sentence of what you intend to filter and normalize.
+5. "next_days"   (for relative dates, e.g. "due soon")
+   Examples:
+     "due in the next 2 days"       →  value: 2
+     "closing tomorrow"             →  value: 1
+     "closing in 48 hours"          →  value: 2
+     "closing this week"            →  value: 7
+     "due soon"                     →  value: 3
+
+-----------------------------------------------------
+NATURAL LANGUAGE INTERPRETATION RULES
+-----------------------------------------------------
+When user uses relative time language like:
+- "tomorrow"
+- "soon"
+- "within X hours"
+- "in the next X days"
+- "this week"
+
+ALWAYS convert to operator: "next_days".
+
+Absolute date ranges still use operator: "between".
+
+NEVER include markdown, explanations, or commentary outside the JSON.
+
+The "plan_explanation" must be a short plain-English description of the filtering and normalization actions you inferred.
 """
 
     user_payload = {
         "eda": eda,
         "user_request": user_request,
         "instruction": (
-            "Infer dataset columns and patterns from EDA, and build filters that operate "
-            "on the FINAL standardized column names."
-        ),
+            "Infer raw columns from EDA, map them to standardized names, "
+            "produce patterns, and generate row-level filters based strictly on final column names."
+        )
     }
 
+    # Force JSON output
     resp = client.chat.completions.create(
         model="gpt-4.1-mini",
         response_format={"type": "json_object"},
@@ -159,14 +177,16 @@ RULES:
     except Exception:
         plan = {}
 
-    # Ensure base structure
+    # Guarantee required fields
     plan.setdefault("columns", {})
     plan.setdefault("set_aside_patterns", {})
     plan.setdefault("opportunity_type_patterns", {})
     plan.setdefault("filters", [])
     plan.setdefault("plan_explanation", "")
 
-    # Normalize required subkeys
+    # ---------------------------------------------------------------------
+    # Normalize column keys
+    # ---------------------------------------------------------------------
     required_columns = [
         "solicitation_number", "title", "agency", "solicitation_date",
         "due_date", "opportunity_type_column", "set_aside_column", "uilink",
@@ -174,6 +194,9 @@ RULES:
     for key in required_columns:
         plan["columns"].setdefault(key, "")
 
+    # ---------------------------------------------------------------------
+    # Normalize set-aside pattern buckets
+    # ---------------------------------------------------------------------
     required_sets = [
         "SDVOSB", "WOSB", "TOTAL SMALL BUSINESS SET ASIDE",
         "VETERAN OWNED SMALL BUSINESS (VOSB)",
@@ -183,12 +206,28 @@ RULES:
     for key in required_sets:
         plan["set_aside_patterns"].setdefault(key, [])
 
+    # ---------------------------------------------------------------------
+    # Normalize opportunity type buckets
+    # ---------------------------------------------------------------------
     required_types = ["Solicitation", "Presolicitation", "Sources Sought", "Other"]
     for key in required_types:
         plan["opportunity_type_patterns"].setdefault(key, [])
 
-    # Ensure filters is always a list
+    # ---------------------------------------------------------------------
+    # Ensure filters is a list of dicts
+    # ---------------------------------------------------------------------
     if not isinstance(plan["filters"], list):
         plan["filters"] = []
+
+    # Cleanup: ensure each filter has column/operator/value
+    cleaned_filters = []
+    for f in plan["filters"]:
+        if not isinstance(f, dict):
+            continue
+        if "column" not in f or "operator" not in f or "value" not in f:
+            continue
+        cleaned_filters.append(f)
+
+    plan["filters"] = cleaned_filters
 
     return plan
