@@ -11,7 +11,9 @@ from data_engine import (
     build_final_output_table,
     to_excel_bytes,
     to_csv_bytes,
+    apply_filters,
 )
+
 from llm_agent import summarize_dataset, create_llm_plan
 
 
@@ -31,7 +33,7 @@ css_path = Path("assets/style.css")
 if css_path.exists():
     st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
 
-    
+
 # -------------------------------------------------
 # AUTH & SESSION STATE
 # -------------------------------------------------
@@ -299,14 +301,20 @@ def show_survey():
 
         # Step 3: Build table
         try:
-            status.update(label="Building output table...", state="running")
+            status.update(label="Building final output table...", state="running")
             final_df = build_final_output_table(df2, columns)
+
+            # NEW: apply row-level filters from the plan, if any
+            filters = plan.get("filters", []) or []
+            final_df = apply_filters(final_df, filters)
+
         except Exception as e:
             st.error(f"Error building final output: {e}")
             render_external_tools()
             return
 
         status.update(label="Complete", state="complete")
+
 
     # Results card
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
