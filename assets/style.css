@@ -1,35 +1,37 @@
+/* assets/style.css */
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
-    background-color: #F3F4F6;
+    background: linear-gradient(135deg, #0f172a 0%, #020617 40%, #0f766e 100%);
     color: #111827;
 }
 
 .main {
-    padding: 2rem;
+    padding: 2.5rem 0;
 }
 
 .app-shell {
-    max-width: 1200px;
+    max-width: 1180px;
     margin: 0 auto;
 }
 
 .app-card {
-    background: white;
+    background: #ffffff;
     border-radius: 18px;
     border: 1px solid #E5E7EB;
     padding: 1.4rem 1.6rem;
     margin-bottom: 1.1rem;
-    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06);
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
 }
 
 .app-title {
-    font-size: 1.6rem;
+    font-size: 1.5rem;
     font-weight: 700;
     margin-bottom: 0.15rem;
 }
 
 .app-subtitle {
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     color: #6B7280;
     margin-bottom: 1.1rem;
 }
@@ -40,17 +42,46 @@ body {
     margin-bottom: 0.5rem;
 }
 
-.helper-text {
+/* Dashboard feature cards */
+
+.feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+}
+
+.feature-card {
+    background: #ffffff;
+    border-radius: 16px;
+    border: 1px solid #E5E7EB;
+    padding: 1.1rem 1.2rem;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.feature-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.22);
+}
+
+.feature-title {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.feature-desc {
     font-size: 0.85rem;
     color: #6B7280;
+    margin-bottom: 0.7rem;
 }
 
 /* Buttons */
+
 .stButton>button {
-    background: linear-gradient(135deg, #4F46E5, #6366F1);
+    background: linear-gradient(135deg, #0F766E, #14B8A6);
     color: white;
     border-radius: 999px;
-    padding: 0.55rem 1.2rem;
+    padding: 0.55rem 1.4rem;
     border: none;
     font-weight: 600;
     font-size: 0.9rem;
@@ -58,6 +89,30 @@ body {
 
 .stButton>button:hover {
     transform: translateY(-1px);
-    box-shadow: 0 10px 25px rgba(79, 70, 229, 0.3);
+    box-shadow: 0 10px 25px rgba(20, 184, 166, 0.35);
     cursor: pointer;
+}
+
+/* External link buttons */
+
+.link-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.link-button {
+    display: inline-block;
+    padding: 0.45rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid #D1D5DB;
+    font-size: 0.85rem;
+    text-decoration: none;
+    color: #0F172A;
+    background-color: #F9FAFB;
+}
+
+.link-button:hover {
+    background-color: #E5E7EB;
 }
