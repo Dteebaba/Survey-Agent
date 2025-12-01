@@ -1,36 +1,27 @@
 import io
 from typing import Dict, List, Optional
 import pandas as pd
+from datetime import datetime, timedelta, date
 
 
 # -------------------------------------------------
 # SAFE HELPERS
 # -------------------------------------------------
 
-def safe_to_datetime(series):
+def safe_to_date(series):
     """
-    Safely convert any column to datetime without errors.
-    Returns a pandas Series of python date objects.
+    Convert any column into pure datetime.date.
+    Handles strings, timestamps, timezone formats.
     """
     s = pd.to_datetime(series, errors="coerce")
-
-    # Force conversion away from object dtype (mixed cells edge cases)
-    if s.dtype == "object":
-        try:
-            s = s.astype("datetime64[ns]")
-        except Exception:
-            s = pd.to_datetime(s, errors="coerce")
-
     return s.dt.date
 
 
-def pick_first_existing(df: pd.DataFrame, *candidates, default=None):
-    """
-    Returns the first column name that exists in df.
-    """
-    for c in candidates:
-        if c and c in df.columns:
-            return c
+def pick_first_existing(df: pd.DataFrame, *names, default=None):
+    """Utility: return first existing column name."""
+    for n in names:
+        if n and n in df.columns:
+            return n
     return default
 
 
@@ -39,9 +30,6 @@ def pick_first_existing(df: pd.DataFrame, *candidates, default=None):
 # -------------------------------------------------
 
 def load_dataset(uploaded_file) -> pd.DataFrame:
-    """
-    Robust loader for CSV, XLSX, XLS files.
-    """
     name = uploaded_file.name.lower()
 
     if name.endswith(".csv"):
@@ -54,7 +42,7 @@ def load_dataset(uploaded_file) -> pd.DataFrame:
         uploaded_file.seek(0)
         return pd.read_excel(uploaded_file, engine="openpyxl")
 
-    raise ValueError("Unsupported file type. Please upload CSV or Excel (.xlsx/.xls).")
+    raise ValueError("Unsupported file type. Upload CSV/XLSX only.")
 
 
 # -------------------------------------------------
@@ -62,77 +50,71 @@ def load_dataset(uploaded_file) -> pd.DataFrame:
 # -------------------------------------------------
 
 def build_full_eda(df: pd.DataFrame) -> Dict:
-    """
-    Build a compact EDA summary for the LLM.
-    """
-    summary = {
-        "row_count": int(len(df)),
-        "column_count": int(len(df.columns)),
+    eda = {
+        "row_count": len(df),
+        "column_count": len(df.columns),
         "columns": []
     }
 
     for col in df.columns:
-        series = df[col]
-        summary["columns"].append({
+        ser = df[col]
+        eda["columns"].append({
             "name": col,
-            "dtype": str(series.dtype),
-            "non_null_count": int(series.notna().sum()),
-            "example_values": [str(v) for v in series.dropna().unique()[:10]],
+            "dtype": str(ser.dtype),
+            "non_null_count": int(ser.notna().sum()),
+            "example_values": [str(v) for v in ser.dropna().unique()[:10]],
         })
 
-    return summary
+    return eda
 
 
 # -------------------------------------------------
-# NORMALIZATION — SET-ASIDE
+# NORMALIZATION: SET-ASIDE
 # -------------------------------------------------
 
 def _fallback_set_aside_patterns():
     return {
         "SDVOSB": [
-            "sdvosb", "service-disabled veteran-owned", "service disabled veteran owned",
-            "service-disabled veteran owned"
+            "sdvosb", "service-disabled veteran-owned",
+            "service disabled veteran owned", "service-disabled veteran owned"
         ],
         "WOSB": [
             "wosb", "women-owned small business", "women owned small business",
             "women owned sb", "women-owned sb"
         ],
         "TOTAL SMALL BUSINESS SET ASIDE": [
-            "total small business", "100% small business", "small business set aside",
-            "small business set-aside", "total sb"
+            "total small business", "100% small business",
+            "small business set aside", "small business set-aside"
         ],
         "VETERAN OWNED SMALL BUSINESS (VOSB)": [
-            "vosb", "veteran owned small business", "veteran-owned small business",
-            "veteran owned sb", "veteran-owned sb"
+            "vosb", "veteran owned small business",
+            "veteran-owned small business"
         ],
         "SBA Certified Economically Disadvantaged WOSB (EDWOSB) Program Set-Aside (FAR 19.15)": [
-            "edwosb", "economically disadvantaged women-owned", "economically disadvantaged wosb"
+            "edwosb", "economically disadvantaged wosb",
+            "economically disadvantaged women-owned"
         ],
-        "NO SET-ASIDE": ["no set-aside used", "no set aside used", "none", "unrestricted"],
+        "NO SET-ASIDE": ["no set-aside used", "none", "unrestricted"],
     }
 
 
-def normalize_set_aside_column(df: pd.DataFrame, col: str,
-                               ai_patterns: Optional[Dict[str, List[str]]] = None,
-                               new_col: str = "Normalized_Set_Aside"):
-
+def normalize_set_aside_column(df, col, ai_patterns=None, new="Normalized_Set_Aside"):
     if col not in df.columns:
-        df[new_col] = pd.NA
+        df[new] = pd.NA
         return df
 
     base = _fallback_set_aside_patterns()
     ai_patterns = ai_patterns or {}
 
-    # Merge AI-suggested patterns
-    for bucket, plist in ai_patterns.items():
-        if not plist:
-            continue
-        bucket = bucket.strip()
-        base.setdefault(bucket, []).extend(plist)
+    # merge AI patterns
+    for bucket, items in ai_patterns.items():
+        if items:
+            bucket = bucket.strip()
+            base.setdefault(bucket, []).extend(items)
 
     lower_series = df[col].astype(str).str.lower().fillna("")
 
-    def match(v):
+    def classify(v):
         v = v.strip().lower()
         if v in ("", "none", "null", "n/a", "na"):
             return None
@@ -142,12 +124,12 @@ def normalize_set_aside_column(df: pd.DataFrame, col: str,
                     return bucket
         return "NO SET-ASIDE"
 
-    df[new_col] = lower_series.apply(match)
+    df[new] = lower_series.apply(classify)
     return df
 
 
 # -------------------------------------------------
-# NORMALIZATION — OPPORTUNITY TYPE
+# NORMALIZATION: OPPORTUNITY TYPE
 # -------------------------------------------------
 
 def _fallback_opp_patterns():
@@ -158,25 +140,20 @@ def _fallback_opp_patterns():
     }
 
 
-def normalize_opportunity_type_column(df: pd.DataFrame, col: str,
-                                      ai_patterns: Optional[Dict[str, List[str]]] = None,
-                                      new_col: str = "Normalized_Opportunity_Type"):
-
+def normalize_opportunity_type_column(df, col, ai_patterns=None, new="Normalized_Opportunity_Type"):
     if col not in df.columns:
-        df[new_col] = "Other"
+        df[new] = "Other"
         return df
 
     patterns = _fallback_opp_patterns()
     ai_patterns = ai_patterns or {}
 
-    # Merge AI patterns
-    for bucket, plist in ai_patterns.items():
-        if not plist:
-            continue
-        bucket = bucket.strip()
-        patterns.setdefault(bucket, []).extend(plist)
+    for bucket, items in ai_patterns.items():
+        if items:
+            bucket = bucket.strip()
+            patterns.setdefault(bucket, []).extend(items)
 
-    lower_series = df[col].astype(str).str.lower().fillna("")
+    lower = df[col].astype(str).str.lower().fillna("")
 
     def classify(v):
         v = v.strip().lower()
@@ -186,61 +163,53 @@ def normalize_opportunity_type_column(df: pd.DataFrame, col: str,
                     return bucket
         return "Other"
 
-    df[new_col] = lower_series.apply(classify)
+    df[new] = lower.apply(classify)
     return df
 
 
 # -------------------------------------------------
-# FINAL OUTPUT BUILDER
+# FINAL TABLE BUILDER
 # -------------------------------------------------
 
-def build_final_output_table(df: pd.DataFrame, column_map: Dict, drop_no_set_aside=True):
-    """
-    Creates a clean final output table with standardized column names.
-    """
-
+def build_final_output_table(df, column_map, drop_no_set_aside=True):
     tmp = df.copy()
 
-    # Optionally filter out "NO SET-ASIDE"
     if drop_no_set_aside and "Normalized_Set_Aside" in tmp.columns:
         tmp = tmp[tmp["Normalized_Set_Aside"].notna()]
         tmp = tmp[tmp["Normalized_Set_Aside"] != "NO SET-ASIDE"]
 
-    # Column lookup
+    # Resolve raw inputs
     sol_num = column_map.get("solicitation_number") or pick_first_existing(
         tmp, "SolicitationNumber", "NoticeId", "NoticeID", "Solicitation_Number"
     )
-
     title = column_map.get("title") or pick_first_existing(tmp, "Title", "Description")
-    agency = column_map.get("agency") or pick_first_existing(
-        tmp, "Agency", "Office", "Agency/Office"
-    )
+    agency = column_map.get("agency") or pick_first_existing(tmp, "Agency", "Office", "Agency/Office")
 
     sol_date = column_map.get("solicitation_date") or pick_first_existing(
         tmp, "PostedDate", "NoticeDate", "SolicitationDate"
     )
-
     due_date = column_map.get("due_date") or pick_first_existing(
         tmp, "ResponseDeadLine", "DueDate", "ResponseDate"
     )
 
-    ui = column_map.get("uilink") or pick_first_existing(
-        tmp, "UiLink", "UIlink", "Ui URL"
-    )
+    ui = column_map.get("uilink") or pick_first_existing(tmp, "UiLink", "UIlink", "Ui URL")
 
     final = pd.DataFrame()
 
     if sol_num in tmp.columns:
         final["Solicitation Number"] = tmp[sol_num]
+
     if title in tmp.columns:
         final["Title"] = tmp[title]
+
     if agency in tmp.columns:
         final["Agency"] = tmp[agency]
 
     if sol_date in tmp.columns:
-        final["Solicitation Date"] = safe_to_datetime(tmp[sol_date])
+        final["Solicitation Date"] = safe_to_date(tmp[sol_date])
+
     if due_date in tmp.columns:
-        final["Due Date"] = safe_to_datetime(tmp[due_date])
+        final["Due Date"] = safe_to_date(tmp[due_date])
 
     if "Normalized_Opportunity_Type" in tmp.columns:
         final["Opportunity Type"] = tmp["Normalized_Opportunity_Type"]
@@ -258,29 +227,25 @@ def build_final_output_table(df: pd.DataFrame, column_map: Dict, drop_no_set_asi
             categories=["Solicitation", "Presolicitation", "Sources Sought", "Other"],
             ordered=True,
         )
-        final["_order"] = cat
-
+        final["_ord"] = cat
         if "Solicitation Date" in final.columns:
-            final = final.sort_values(["_order", "Solicitation Date"])
+            final = final.sort_values(["_ord", "Solicitation Date"])
         else:
-            final = final.sort_values(["_order"])
-
-        final = final.drop(columns=["_order"])
+            final = final.sort_values(["_ord"])
+        final = final.drop(columns=["_ord"])
 
     return final
 
+
 # -------------------------------------------------
-# Filters
+# FILTER ENGINE (FINAL VERSION)
 # -------------------------------------------------
 
 def apply_filters(df: pd.DataFrame, filters: List[Dict]) -> pd.DataFrame:
     """
-    Apply a list of simple filter objects to the final output DataFrame.
-
-    Each filter is expected to have:
-      - column: name of the column in df (e.g. 'Normalized Set Aside')
-      - operator: one of 'in', 'equals', 'contains', 'between'
-      - value: depends on operator
+    Apply LLM-generated filters to the table.
+    Supports: in, equals, contains, between, next_days.
+    FIXES date comparison errors permanently.
     """
     if not filters:
         return df
@@ -292,28 +257,57 @@ def apply_filters(df: pd.DataFrame, filters: List[Dict]) -> pd.DataFrame:
         op = f.get("operator")
         val = f.get("value")
 
-        if not col or col not in out.columns or op is None:
-            # skip invalid filters silently
+        if col not in out.columns:
             continue
 
-        # in: value is list
+        # Always normalize column to datetime.date if possible
+        try:
+            out[col] = pd.to_datetime(out[col], errors="coerce").dt.date
+        except:
+            pass
+
+        # IN
         if op == "in":
             if isinstance(val, list):
                 out = out[out[col].isin(val)]
-        # equals: scalar
-        elif op == "equals":
+            continue
+
+        # EQUALS
+        if op == "equals":
             out = out[out[col] == val]
-        # contains: scalar substring, case-insensitive
-        elif op == "contains":
-            if isinstance(out[col].dtype, pd.StringDtype) or out[col].dtype == "object":
-                s = out[col].astype(str)
-                out = out[s.str.contains(str(val), case=False, na=False)]
-        # between: two endpoints for dates / comparable values
-        elif op == "between":
-            if isinstance(val, list) and len(val) == 2:
-                start, end = val
-                # Let pandas do comparison, assume dates already normalized if they are dates
-                out = out[(out[col] >= start) & (out[col] <= end)]
+            continue
+
+        # CONTAINS
+        if op == "contains":
+            s = out[col].astype(str)
+            out = out[s.str.contains(str(val), case=False, na=False)]
+            continue
+
+        # BETWEEN (dates)
+        if op == "between":
+            try:
+                d1 = pd.to_datetime(val[0], errors="coerce").date()
+                d2 = pd.to_datetime(val[1], errors="coerce").date()
+            except:
+                continue
+
+            out = out.dropna(subset=[col])
+            out = out[(out[col] >= d1) & (out[col] <= d2)]
+            continue
+
+        # NEXT DAYS
+        if op == "next_days":
+            try:
+                nd = int(val)
+            except:
+                continue
+
+            today = date.today()
+            future = today + timedelta(days=nd)
+
+            out = out.dropna(subset=[col])
+            out = out[(out[col] >= today) & (out[col] <= future)]
+            continue
 
     return out
 
@@ -322,13 +316,13 @@ def apply_filters(df: pd.DataFrame, filters: List[Dict]) -> pd.DataFrame:
 # EXPORT HELPERS
 # -------------------------------------------------
 
-def to_excel_bytes(df: pd.DataFrame, sheet_name="Filtered") -> bytes:
+def to_excel_bytes(df, sheet_name="Filtered"):
     buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name=sheet_name[:31])
+    with pd.ExcelWriter(buf, engine="openpyxl") as w:
+        df.to_excel(w, index=False, sheet_name=sheet_name[:31])
     buf.seek(0)
     return buf.getvalue()
 
 
-def to_csv_bytes(df: pd.DataFrame) -> bytes:
+def to_csv_bytes(df):
     return df.to_csv(index=False).encode("utf-8")
