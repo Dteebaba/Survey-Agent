@@ -51,6 +51,25 @@ def build_full_eda(df: pd.DataFrame) -> Dict:
     return eda
 
 
+# ---------- SAFE DATE HANDLING ----------
+
+def safe_to_date(series):
+    """
+    Convert any messy date-like column to pure Python date objects.
+    Never throws .dt errors, even on mixed or invalid data.
+    """
+    s = pd.to_datetime(series, errors="coerce")
+
+    # Try to force it away from object dtype if needed
+    if s.dtype == "object":
+        try:
+            s = s.astype("datetime64[ns]")
+        except Exception:
+            s = pd.to_datetime(s, errors="coerce")
+
+    return s.dt.date
+
+
 # ---------- SET-ASIDE NORMALIZATION ----------
 
 SET_ASIDE_BUCKETS = [
@@ -114,7 +133,6 @@ def normalize_set_aside_column(
 ) -> pd.DataFrame:
     """
     Create a new column with normalized set-aside values.
-    Uses AI patterns (from llm_agent plan) plus safe hard-coded fallbacks.
     """
     if set_aside_col not in df.columns:
         df[new_col_name] = pd.NA
@@ -212,15 +230,7 @@ def build_final_output_table(
     drop_no_set_aside: bool = True,
 ) -> pd.DataFrame:
     """
-    Final table with exactly:
-      - Solicitation Number
-      - Title
-      - Agency
-      - Solicitation Date
-      - Opportunity Type
-      - Normalized Set Aside
-      - Due Date
-      - UiLink
+    Final table with standardized columns.
     """
 
     def choose_col(keys, default=None):
@@ -258,21 +268,22 @@ def build_final_output_table(
         final_df["Title"] = tmp[title_col]
     if agency_col in tmp.columns:
         final_df["Agency"] = tmp[agency_col]
+
+    # SAFE DATE CONVERSION
     if sol_date_col in tmp.columns:
-        final_df["Solicitation Date"] = pd.to_datetime(
-            tmp[sol_date_col], errors="coerce"
-        ).dt.date
+        final_df["Solicitation Date"] = safe_to_date(tmp[sol_date_col])
+    if due_date_col in tmp.columns:
+        final_df["Due Date"] = safe_to_date(tmp[due_date_col])
+
     if norm_type_col in tmp.columns:
         final_df["Opportunity Type"] = tmp[norm_type_col]
     if norm_set_aside_col in tmp.columns:
         final_df["Normalized Set Aside"] = tmp[norm_set_aside_col]
-    if due_date_col and due_date_col in tmp.columns:
-        final_df["Due Date"] = pd.to_datetime(
-            tmp[due_date_col], errors="coerce"
-        ).dt.date
-    if uilink_col and uilink_col in tmp.columns:
+
+    if uilink_col in tmp.columns:
         final_df["UiLink"] = tmp[uilink_col]
 
+    # ORDERING
     if "Opportunity Type" in final_df.columns:
         type_cat = pd.Categorical(
             final_df["Opportunity Type"],
