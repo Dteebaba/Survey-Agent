@@ -1,6 +1,5 @@
 import datetime
 from pathlib import Path
-
 import streamlit as st
 
 from auth import check_access
@@ -26,16 +25,16 @@ st.set_page_config(
     layout="wide",
 )
 
-# Load custom CSS
+# Load CSS
 css_path = Path("assets/style.css")
 if css_path.exists():
     st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
 
 
 # -------------------------------------------------
-# AUTH & SESSION STATE
+# AUTH + SESSION STATE
 # -------------------------------------------------
-check_access()  # must set st.session_state["role"]
+check_access()
 
 st.session_state.setdefault("page", "home")
 st.session_state.setdefault("results_ready", False)
@@ -48,15 +47,14 @@ def goto(page: str):
 
 
 def log_event(action: str, status: str, message: str = "", extra: dict | None = None):
-    entry = {
+    st.session_state.activity_log.append({
         "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
         "role": st.session_state.get("role", "unknown"),
         "action": action,
         "status": status,
         "message": message,
         "extra": extra or {},
-    }
-    st.session_state.activity_log.append(entry)
+    })
 
 
 # -------------------------------------------------
@@ -68,10 +66,10 @@ def render_external_tools():
     st.markdown(
         """
         <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">
-            Continue work in external tools
+            External AI & Research Tools
         </div>
         <p style="color:#374151; font-size:0.9rem; margin-bottom:0.8rem;">
-            These links open in a new tab for deeper analysis or proposal writing.
+            Click a tool below to continue your analysis or proposal workflow.
         </p>
         """,
         unsafe_allow_html=True,
@@ -105,13 +103,63 @@ def render_external_tools():
         """
         <a class="ext-btn"
            href="https://chatgpt.com/g/g-6926512d2a5c8191b7260d3fe8d2b5d9-sam-excel-solicitation-analyzer"
-           target="_blank">Custom Solicitation GPT</a>
+           target="_blank">Solicitation Analyzer GPT</a>
+
+        <a class="ext-btn"
+           href="https://chatgpt.com/g/g-67df3383b37c81919e4fd38381e15a3b-sources-sought-analyzer"
+           target="_blank">Sources Sought Analyzer</a>
+
+        <a class="ext-btn"
+           href="https://chatgpt.com/g/g-68c8e4688328819182428ed714ade74a-breakdown-statement-of-works"
+           target="_blank">Breakdown Statement of Work</a>
+
         <a class="ext-btn" href="https://chatgpt.com" target="_blank">ChatGPT</a>
-        <a class="ext-btn" href="https://gemini.google.com" target="_blank">Gemini</a>
+
         <a class="ext-btn" href="https://www.google.com" target="_blank">Google Search</a>
         """,
         unsafe_allow_html=True,
     )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# -------------------------------------------------
+# TRAINING PAGE (VISIBLE TO ALL USERS)
+# -------------------------------------------------
+def show_training():
+    st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
+
+    # Header
+    st.markdown(
+        """
+        <div class='app-card'>
+            <div class='app-title'>Training Videos</div>
+            <div class='app-subtitle'>
+                Learn how to use SAM.gov, ChatGPT, and federal opportunity tools.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if st.button("Back to home"):
+        goto("home")
+
+    # Training content
+    st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+
+    st.markdown("### 🎥 How to use Sam.gov and ChatGPT", unsafe_allow_html=True)
+    st.video("https://www.youtube.com/watch?v=Nyvwo7es3wo")
+
+    st.markdown(
+        "<p style='color:#6B7280; font-size:0.9rem;'>More training videos will be added soon…</p>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # External tools also shown here
+    render_external_tools()
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -122,30 +170,28 @@ def render_external_tools():
 def show_home():
     st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
 
+    # Header
     st.markdown(
         """
         <div class='app-card'>
             <div class='app-title'>Survey Agent</div>
             <div class='app-subtitle'>
-                Intelligent assistant for federal opportunity spreadsheets.
-                Upload a dataset and let AI help analyze and filter it.
+                AI-powered assistant for managing federal opportunity spreadsheets.
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
+    # Feature Grid
     st.markdown("<div class='feature-grid'>", unsafe_allow_html=True)
 
-    # Document Assistant card
+    # Document Assistant Card
     st.markdown(
         """
         <div class='feature-card'>
             <div class='feature-title'>Document Assistant</div>
-            <div class='feature-desc'>
-                Upload a CSV or Excel file and let the AI understand, normalize, 
-                and filter your dataset into a clean working table.
-            </div>
+            <div class='feature-desc'>Upload data, normalize it, and apply AI filters.</div>
         """,
         unsafe_allow_html=True,
     )
@@ -153,30 +199,39 @@ def show_home():
         goto("survey")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # External tools card
+    # Training Card
     st.markdown(
         """
         <div class='feature-card'>
-            <div class='feature-title'>External AI & Research Tools</div>
-            <div class='feature-desc'>
-                Quick access to ChatGPT, Gemini, Google, and your solicitation analyzer.
-            </div>
+            <div class='feature-title'>Training</div>
+            <div class='feature-desc'>Watch tutorials and learn how to use SAM.gov & AI tools.</div>
         """,
         unsafe_allow_html=True,
     )
-    if st.button("View external tools"):
-        goto("links")
+    if st.button("View Training"):
+        goto("training")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Admin console (admins only)
+    # Tools card
+    st.markdown(
+        """
+        <div class='feature-card'>
+            <div class='feature-title'>AI Tools</div>
+            <div class='feature-desc'>Use specialized AI tools to analyze federal opportunities.</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button("Open Tools"):
+        goto("tools")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Admin Console (Admins Only)
     if st.session_state.get("role") == "admin":
         st.markdown(
             """
             <div class='feature-card'>
                 <div class='feature-title'>Admin Console</div>
-                <div class='feature-desc'>
-                    View activity logs for this session.
-                </div>
+                <div class='feature-desc'>View logs and system activity.</div>
             """,
             unsafe_allow_html=True,
         )
@@ -184,12 +239,38 @@ def show_home():
             goto("admin")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("</div>", unsafe_allow_html=True)  # feature-grid
-    st.markdown("</div>", unsafe_allow_html=True)  # app-shell
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # -------------------------------------------------
-# SURVEY / DOCUMENT ASSISTANT
+# TOOLS PAGE (JUST LINK WRAPPER)
+# -------------------------------------------------
+def show_tools():
+    st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
+
+    st.markdown(
+        """
+        <div class='app-card'>
+            <div class='app-title'>External Tools</div>
+            <div class='app-subtitle'>
+                Use these tools to support your analysis workflows.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if st.button("Back to home"):
+        goto("home")
+
+    render_external_tools()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# -------------------------------------------------
+# DOCUMENT ASSISTANT
 # -------------------------------------------------
 def show_survey():
     st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
@@ -199,8 +280,7 @@ def show_survey():
         <div class='app-card'>
             <div class='app-title'>Document Assistant</div>
             <div class='app-subtitle'>
-                Upload a dataset, describe what you want,
-                and download a filtered, normalized sheet for proposal work.
+                Upload, normalize, filter, and export federal opportunity datasets.
             </div>
         </div>
         """,
@@ -212,28 +292,25 @@ def show_survey():
 
     # Upload
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    uploaded = st.file_uploader("Upload CSV or Excel file", type=["csv", "xlsx", "xls"])
+    uploaded_file = st.file_uploader("Upload Excel or CSV file", type=["csv", "xlsx", "xls"])
     st.markdown("</div>", unsafe_allow_html=True)
 
-    if not uploaded:
+    if not uploaded_file:
         render_external_tools()
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    dataset_name = uploaded.name
+    dataset_name = uploaded_file.name
 
     # Load dataset
     try:
-        df = load_dataset(uploaded)
-        log_event("load_dataset", "success", "", {"file": dataset_name})
+        df = load_dataset(uploaded_file)
     except Exception as e:
-        msg = f"Could not load file: {e}"
-        st.error(msg)
-        log_event("load_dataset", "error", msg, {"file": dataset_name})
+        st.error(f"Could not load file: {e}")
         render_external_tools()
-        st.markdown("</div>", unsafe_allow_html=True)
         return
 
+    # Dataset info
     st.markdown(
         f"<p class='data-meta'>Loaded <b>{dataset_name}</b> — Rows: {len(df)} | Columns: {len(df.columns)}</p>",
         unsafe_allow_html=True,
@@ -242,210 +319,104 @@ def show_survey():
     with st.expander("Preview first 20 rows"):
         st.dataframe(df.head(20))
 
-    # EDA + AI summary
-    with st.spinner("Analyzing dataset structure..."):
-        eda = build_full_eda(df)
-        try:
-            ai_summary = summarize_dataset(eda)
-        except Exception as e:
-            ai_summary = f"(AI summary failed: {e})"
-            log_event("summarize_dataset", "error", str(e), {"file": dataset_name})
+    # Build EDA
+    eda = build_full_eda(df)
 
+    # Manual Dataset Summary
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    st.markdown("#### AI understanding of your dataset", unsafe_allow_html=True)
-    st.write(ai_summary)
+    st.markdown("#### Dataset Understanding (Click to Generate)", unsafe_allow_html=True)
+
+    if st.button("Generate Dataset Summary"):
+        with st.spinner("AI analyzing your dataset..."):
+            try:
+                summary = summarize_dataset(eda)
+            except Exception as e:
+                summary = f"(AI failed: {e})"
+        st.write(summary)
+
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Instruction
+    # User instruction
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    st.markdown("#### What do you want to extract or filter?", unsafe_allow_html=True)
+    st.markdown("#### What do you want to extract or filter?")
     user_request = st.text_area(
         "Instruction",
-        placeholder=(
-            "Example: Filter to SDVOSB opportunities due in the next 14 days "
-            "and include only standard columns."
-        ),
-        height=130,
+        placeholder="Example: Show SDVOSB solicitations due in the next 14 days",
+        height=120,
     )
-    run_btn = st.button("Run analysis")
+    run_btn = st.button("Run Analysis")
     st.markdown("</div>", unsafe_allow_html=True)
 
     if not run_btn:
         render_external_tools()
-        st.markdown("</div>", unsafe_allow_html=True)
         return
 
     if not user_request.strip():
-        st.warning("Please provide an instruction for the agent.")
+        st.warning("Please provide an instruction.")
         render_external_tools()
-        st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    st.session_state.results_ready = False
-
-    # Pipeline
-    with st.status("Working on your request...", expanded=True) as status:
-        # 1) Plan
+    with st.status("Processing your request...", expanded=True) as status:
+        # Step 1: LLM Plan
+        status.update(label="Interpreting your instruction...", state="running")
         try:
-            status.update(label="Interpreting your instruction with AI...", state="running")
             plan = create_llm_plan(eda, user_request)
-            columns_map = plan.get("columns", {}) or {}
-            sa_patterns = plan.get("set_aside_patterns", {}) or {}
-            opp_patterns = plan.get("opportunity_type_patterns", {}) or {}
-            filters = plan.get("filters", []) or []
-            plan_explanation = plan.get("plan_explanation", "")
-
-            log_event(
-                "create_llm_plan",
-                "success",
-                "",
-                {"file": dataset_name, "instruction": user_request},
-            )
         except Exception as e:
-            msg = f"Failed to create AI plan: {e}"
-            st.error(msg)
-            log_event(
-                "create_llm_plan",
-                "error",
-                msg,
-                {"file": dataset_name, "instruction": user_request},
-            )
-            status.update(label="Failed to interpret instruction", state="error")
-            render_external_tools()
+            st.error(f"AI plan failed: {e}")
             return
 
-        # 2) Normalization
+        columns = plan.get("columns", {})
+        sa_patterns = plan.get("set_aside_patterns", {})
+        opp_patterns = plan.get("opportunity_type_patterns", {})
+        filters = plan.get("filters", [])
+
+        # Step 2: Normalize
+        status.update(label="Normalizing...", state="running")
+        df2 = df.copy()
+        df2 = normalize_set_aside_column(df2, columns.get("set_aside_column") or "TypeOfSetAsideDescription", sa_patterns)
+        df2 = normalize_opportunity_type_column(df2, columns.get("opportunity_type_column") or "Type", opp_patterns)
+
+        # Step 3: Build final table
+        status.update(label="Building final output...", state="running")
         try:
-            status.update(label="Normalizing set-asides and opportunity types...", state="running")
-            df2 = df.copy()
-
-            type_col = columns_map.get("opportunity_type_column") or "Type"
-            sa_col = columns_map.get("set_aside_column") or "TypeOfSetAsideDescription"
-
-            df2 = normalize_set_aside_column(df2, sa_col, ai_patterns=sa_patterns)
-            df2 = normalize_opportunity_type_column(df2, type_col, ai_patterns=opp_patterns)
-
-            log_event(
-                "normalize",
-                "success",
-                "",
-                {"file": dataset_name, "type_col": type_col, "set_aside_col": sa_col},
-            )
-        except Exception as e:
-            msg = f"Normalization failed: {e}"
-            st.error(msg)
-            log_event(
-                "normalize",
-                "error",
-                msg,
-                {"file": dataset_name},
-            )
-            status.update(label="Normalization failed", state="error")
-            render_external_tools()
-            return
-
-        # 3) Final output + filters
-        try:
-            status.update(label="Building final output table...", state="running")
-            final_df = build_final_output_table(df2, columns_map)
-
-            # Apply filters from LLM
+            final_df = build_final_output_table(df2, columns)
             final_df = apply_filters(final_df, filters)
-
-            st.session_state.results_ready = True
-            log_event(
-                "analysis",
-                "success",
-                "Analysis completed successfully.",
-                {
-                    "file": dataset_name,
-                    "rows_output": len(final_df),
-                    "instruction": user_request,
-                },
-            )
-
-            status.update(label="Complete", state="complete")
         except Exception as e:
-            msg = f"Error building final output: {e}"
-            st.error(msg)
-            log_event(
-                "build_final_output_table",
-                "error",
-                msg,
-                {"file": dataset_name},
-            )
-            status.update(label="Failed to build final table", state="error")
-            render_external_tools()
+            st.error(f"Error building output: {e}")
             return
 
-    # Results & download
+        status.update(label="Complete", state="complete")
+
+    # Output
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    st.markdown("#### What the agent did", unsafe_allow_html=True)
-    st.write(
-        plan_explanation
-        or "The agent identified likely columns, normalized set-asides and opportunity types, "
-           "and applied your filters."
-    )
+    st.markdown("#### Filtered Results", unsafe_allow_html=True)
+    st.write(f"Rows returned: **{len(final_df)}**")
 
-    st.markdown("#### Filtered and normalized results", unsafe_allow_html=True)
-    st.write(f"Rows in final output: **{len(final_df)}**")
-
-    if len(final_df) == 0:
-        st.warning(
-            "No rows remain after applying your instruction and the normalization rules. "
-            "You may need to relax the filters or adjust your request."
-        )
-    else:
+    if len(final_df) > 0:
         st.dataframe(final_df.head(50))
 
         excel_bytes = to_excel_bytes(final_df)
         csv_bytes = to_csv_bytes(final_df)
 
-        col1, col2 = st.columns(2)
-        with col1:
+        c1, c2 = st.columns(2)
+        with c1:
             st.download_button(
                 "Download Excel",
-                data=excel_bytes,
-                file_name="Filtered_Results.xlsx",
+                excel_bytes,
+                "Filtered_Results.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-        with col2:
+        with c2:
             st.download_button(
                 "Download CSV",
-                data=csv_bytes,
-                file_name="Filtered_Results.csv",
+                csv_bytes,
+                "Filtered_Results.csv",
                 mime="text/csv",
             )
+    else:
+        st.warning("No rows matched your filter criteria.")
 
-    st.markdown("</div>", unsafe_allow_html=True)  # result card
-
-    # External tools (always visible)
-    render_external_tools()
-
-    st.markdown("</div>", unsafe_allow_html=True)  # app-shell
-
-
-# -------------------------------------------------
-# EXTERNAL LINKS PAGE
-# -------------------------------------------------
-def show_links():
-    st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
-
-    st.markdown(
-        """
-        <div class='app-card'>
-            <div class='app-title'>External AI & Research Tools</div>
-            <div class='app-subtitle'>
-                Use these tools after you have exported your filtered dataset 
-                from the Document Assistant.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if st.button("Back to home"):
-        goto("home")
+    st.markdown("</div>", unsafe_allow_html=True)
 
     render_external_tools()
 
@@ -453,23 +424,13 @@ def show_links():
 
 
 # -------------------------------------------------
-# ADMIN CONSOLE (SESSION-LOCAL LOGS)
+# ADMIN PAGE
 # -------------------------------------------------
 def show_admin():
     st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
 
     if st.session_state.get("role") != "admin":
-        st.markdown(
-            """
-            <div class='app-card'>
-                <div class='app-title'>Admin Console</div>
-                <div class='app-subtitle'>
-                    You do not have permission to view this area.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.error("Access denied.")
         if st.button("Back to home"):
             goto("home")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -479,10 +440,7 @@ def show_admin():
         """
         <div class='app-card'>
             <div class='app-title'>Admin Console</div>
-            <div class='app-subtitle'>
-                Session-level activity log. This data is not persisted between sessions,
-                but gives you quick insight into how the tool is being used right now.
-            </div>
+            <div class='app-subtitle'>System activity logs.</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -494,32 +452,12 @@ def show_admin():
     logs = st.session_state.activity_log
 
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+    st.markdown("### Activity Log", unsafe_allow_html=True)
 
     if not logs:
-        st.write("No activity recorded in this session yet.")
+        st.write("No activity yet.")
     else:
-        total = len(logs)
-        errors = sum(1 for e in logs if e["status"] == "error")
-        successes = sum(1 for e in logs if e["status"] == "success")
-
-        st.markdown("#### Summary", unsafe_allow_html=True)
-        st.write(f"- Total events: **{total}**")
-        st.write(f"- Successful analyses: **{successes}**")
-        st.write(f"- Errors: **{errors}**")
-
-        st.markdown("#### Detailed activity log", unsafe_allow_html=True)
-        log_rows = []
-        for e in logs:
-            log_rows.append({
-                "Time": e["timestamp"],
-                "Role": e["role"],
-                "Action": e["action"],
-                "Status": e["status"],
-                "Message": e["message"],
-                "File": e["extra"].get("file", ""),
-                "Rows Output": e["extra"].get("rows_output", ""),
-            })
-        st.dataframe(log_rows)
+        st.dataframe(logs)
 
     st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
@@ -532,7 +470,9 @@ if st.session_state.page == "home":
     show_home()
 elif st.session_state.page == "survey":
     show_survey()
-elif st.session_state.page == "links":
-    show_links()
+elif st.session_state.page == "training":
+    show_training()
+elif st.session_state.page == "tools":
+    show_tools()
 elif st.session_state.page == "admin":
     show_admin()
