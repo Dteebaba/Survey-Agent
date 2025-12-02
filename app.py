@@ -102,10 +102,6 @@ def render_external_tools():
     st.markdown(
         """
         <a class="ext-btn"
-           href="https://chatgpt.com/g/g-6926512d2a5c8191b7260d3fe8d2b5d9-sam-excel-solicitation-analyzer"
-           target="_blank">Solicitation Analyzer GPT</a>
-
-        <a class="ext-btn"
            href="https://chatgpt.com/g/g-67df3383b37c81919e4fd38381e15a3b-sources-sought-analyzer"
            target="_blank">Sources Sought Analyzer</a>
 
@@ -114,6 +110,10 @@ def render_external_tools():
            target="_blank">Breakdown Statement of Work</a>
 
         <a class="ext-btn" href="https://chatgpt.com" target="_blank">ChatGPT</a>
+
+        <a class="ext-btn"
+           href="https://www.perplexity.ai/"
+           target="_blank">Perplexity AI</a>
 
         <a class="ext-btn" href="https://www.google.com" target="_blank">Google Search</a>
         """,
