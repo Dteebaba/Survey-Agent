@@ -1,7 +1,7 @@
 import io
 from typing import Dict, List, Optional
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import pytz
 
 
@@ -10,19 +10,25 @@ import pytz
 # -------------------------------------------------
 def force_date(series: pd.Series) -> pd.Series:
     """
-    Convert ANY column into clean datetime.date values.
-    Handles:
-      - ISO timestamps (2025-12-05T08:00:00-05:00)
-      - MM/DD/YYYY strings (11/26/2025)
-      - Excel-style floats
-      - Empty or invalid values → NaT
+    Convert ANY series into datetime.date values.
+    NEVER raises .dt errors.
     """
-    s = pd.to_datetime(series, errors="coerce")
-    return s.dt.date
+    try:
+        # First attempt — pandas conversion
+        s = pd.to_datetime(series, errors="coerce")
+        return s.dt.date
+    except Exception:
+        # Absolute fallback — convert cell-by-cell
+        def safe(val):
+            try:
+                return pd.to_datetime(val, errors="coerce").date()
+            except:
+                return None
+        return series.apply(safe)
 
 
 # -------------------------------------------------
-# SIMPLE COLUMN PICKER
+# COLUMN PICKER
 # -------------------------------------------------
 def pick_first_existing(df: pd.DataFrame, *names, default=None):
     for name in names:
@@ -32,25 +38,22 @@ def pick_first_existing(df: pd.DataFrame, *names, default=None):
 
 
 # -------------------------------------------------
-# FILE LOADING
+# LOAD DATASET
 # -------------------------------------------------
 def load_dataset(uploaded_file) -> pd.DataFrame:
-    """
-    Robust CSV/XLSX loader that handles encoding issues.
-    """
     name = uploaded_file.name.lower()
 
     if name.endswith(".csv"):
         try:
-            return pd.read_csv(uploaded_file, encoding="utf-8", engine="python")
-        except Exception:
-            return pd.read_csv(uploaded_file, encoding="latin1", engine="python")
+            return pd.read_csv(uploaded_file, encoding="utf-8")
+        except:
+            return pd.read_csv(uploaded_file, encoding="latin1")
 
     if name.endswith(".xlsx") or name.endswith(".xls"):
         uploaded_file.seek(0)
         return pd.read_excel(uploaded_file, engine="openpyxl")
 
-    raise ValueError("Unsupported file type. Upload CSV or Excel.")
+    raise ValueError("Unsupported file type")
 
 
 # -------------------------------------------------
@@ -76,41 +79,22 @@ def build_full_eda(df: pd.DataFrame) -> Dict:
 
 
 # -------------------------------------------------
-# SET-ASIDE NORMALIZATION
+# NORMALIZATION: SET-ASIDE
 # -------------------------------------------------
 def _fallback_set_aside_patterns():
     return {
-        "SDVOSB": [
-            "sdvosb", "service-disabled veteran-owned",
-            "service disabled veteran owned", "service-disabled veteran owned"
-        ],
-        "WOSB": [
-            "wosb", "women-owned small business", "women owned small business",
-            "women owned sb", "women-owned sb"
-        ],
-        "TOTAL SMALL BUSINESS SET ASIDE": [
-            "total small business", "100% small business",
-            "small business set aside", "small business set-aside"
-        ],
-        "VETERAN OWNED SMALL BUSINESS (VOSB)": [
-            "vosb", "veteran owned small business", "veteran-owned small business"
-        ],
+        "SDVOSB": ["sdvosb", "service-disabled", "service disabled"],
+        "WOSB": ["wosb", "women"],
+        "TOTAL SMALL BUSINESS SET ASIDE": ["total small business", "100% small business"],
+        "VETERAN OWNED SMALL BUSINESS (VOSB)": ["vosb", "veteran"],
         "SBA Certified Economically Disadvantaged WOSB (EDWOSB) Program Set-Aside (FAR 19.15)": [
-            "edwosb", "economically disadvantaged women-owned",
-            "economically disadvantaged wosb"
+            "edwosb", "economically disadvantaged"
         ],
-        "NO SET-ASIDE": [
-            "no set-aside used", "no set aside used", "none", "unrestricted"
-        ],
+        "NO SET-ASIDE": ["no set aside", "none", "unrestricted"]
     }
 
 
-def normalize_set_aside_column(
-    df: pd.DataFrame,
-    col: str,
-    ai_patterns: Optional[Dict[str, List[str]]] = None,
-    new_col: str = "Normalized_Set_Aside"
-) -> pd.DataFrame:
+def normalize_set_aside_column(df, col, ai_patterns=None, new_col="Normalized_Set_Aside"):
     if col not in df.columns:
         df[new_col] = pd.NA
         return df
@@ -118,15 +102,15 @@ def normalize_set_aside_column(
     base = _fallback_set_aside_patterns()
     ai_patterns = ai_patterns or {}
 
-    for bucket, patterns in ai_patterns.items():
-        if patterns:
-            base.setdefault(bucket.strip(), []).extend(patterns)
+    for bucket, list_p in ai_patterns.items():
+        if list_p:
+            base.setdefault(bucket.strip(), []).extend(list_p)
 
     lowered = df[col].astype(str).str.lower()
 
     def classify(v):
         v = v.strip().lower()
-        if v in ("", "none", "null", "n/a", "na"):
+        if v in ("", "none", "null", "n/a"):
             return None
         for bucket, pats in base.items():
             for p in pats:
@@ -139,26 +123,17 @@ def normalize_set_aside_column(
 
 
 # -------------------------------------------------
-# OPPORTUNITY TYPE NORMALIZATION
+# NORMALIZATION: OPPORTUNITY TYPE
 # -------------------------------------------------
 def _fallback_opp_patterns():
     return {
-        "Solicitation": [
-            "solicitation", "combined synopsis/solicitation"
-        ],
+        "Solicitation": ["solicitation", "combined synopsis"],
         "Presolicitation": ["presolicitation"],
-        "Sources Sought": [
-            "sources sought", "rfi", "request for information"
-        ]
+        "Sources Sought": ["sources sought", "rfi", "request for information"]
     }
 
 
-def normalize_opportunity_type_column(
-    df: pd.DataFrame,
-    col: str,
-    ai_patterns: Optional[Dict[str, List[str]]] = None,
-    new_col: str = "Normalized_Opportunity_Type"
-) -> pd.DataFrame:
+def normalize_opportunity_type_column(df, col, ai_patterns=None, new_col="Normalized_Opportunity_Type"):
     if col not in df.columns:
         df[new_col] = "Other"
         return df
@@ -166,16 +141,16 @@ def normalize_opportunity_type_column(
     patterns = _fallback_opp_patterns()
     ai_patterns = ai_patterns or {}
 
-    for bucket, pats in ai_patterns.items():
-        if pats:
-            patterns.setdefault(bucket.strip(), []).extend(pats)
+    for bucket, patlist in ai_patterns.items():
+        if patlist:
+            patterns.setdefault(bucket.strip(), []).extend(patlist)
 
     lowered = df[col].astype(str).str.lower()
 
     def classify(v):
         v = v.strip().lower()
-        for bucket, ps in patterns.items():
-            for p in ps:
+        for bucket, pats in patterns.items():
+            for p in pats:
                 if p.lower() in v:
                     return bucket
         return "Other"
@@ -187,38 +162,40 @@ def normalize_opportunity_type_column(
 # -------------------------------------------------
 # FINAL OUTPUT TABLE
 # -------------------------------------------------
-def build_final_output_table(
-    df: pd.DataFrame,
-    column_map: Dict,
-    drop_no_set_aside: bool = True
-) -> pd.DataFrame:
-    """
-    Build the final normalized table with consistent columns.
-    ALL date fields converted with force_date() to prevent .dt errors.
-    """
+def build_final_output_table(df: pd.DataFrame, column_map: Dict, drop_no_set_aside=True):
     tmp = df.copy()
 
-    # Drop rows where set-aside is missing (if requested)
+    # Drop unwanted set-asides
     if drop_no_set_aside and "Normalized_Set_Aside" in tmp.columns:
         tmp = tmp[tmp["Normalized_Set_Aside"].notna()]
         tmp = tmp[tmp["Normalized_Set_Aside"] != "NO SET-ASIDE"]
 
-    # Resolve columns
+    # Column resolution
     sol_num = column_map.get("solicitation_number") or pick_first_existing(
-        tmp, "SolicitationNumber", "NoticeId", "NoticeID", "Solicitation_Number"
+        tmp, "SolicitationNumber", "NoticeId", "NoticeID"
     )
     title = column_map.get("title") or pick_first_existing(tmp, "Title", "Description")
-    agency = column_map.get("agency") or pick_first_existing(tmp, "Agency", "Office", "Agency/Office")
+    agency = column_map.get("agency") or pick_first_existing(tmp, "Agency", "Office")
 
     sol_date = column_map.get("solicitation_date") or pick_first_existing(
         tmp, "PostedDate", "NoticeDate", "SolicitationDate"
     )
 
+    # Validate allowed solicitation date columns
+    if sol_date not in [None, "", "PostedDate", "NoticeDate", "SolicitationDate"]:
+        raise ValueError(f"Invalid solicitation_date column chosen: {sol_date}")
+
     due_date = column_map.get("due_date") or pick_first_existing(
-        tmp, "ResponseDeadLine", "DueDate", "ResponseDate"
+        tmp, "ResponseDeadLine", "ResponseDate", "DueDate"
     )
 
-    uilink = column_map.get("uilink") or pick_first_existing(tmp, "UiLink", "UIlink", "Ui URL")
+    # Validate allowed due date columns
+    if due_date not in [None, "", "ResponseDeadLine", "ResponseDate", "DueDate"]:
+        raise ValueError(f"Invalid due_date column chosen: {due_date}")
+
+    uilink = column_map.get("uilink") or pick_first_existing(
+        tmp, "UiLink", "UIlink", "Ui URL"
+    )
 
     final = pd.DataFrame()
 
@@ -246,27 +223,25 @@ def build_final_output_table(
     if uilink in tmp.columns:
         final["UiLink"] = tmp[uilink]
 
-    # Sorting by type then solicitation date
+    # Sorting
     if "Opportunity Type" in final.columns:
         cat = pd.Categorical(
             final["Opportunity Type"],
             categories=["Solicitation", "Presolicitation", "Sources Sought", "Other"],
             ordered=True,
         )
-        final["_sort"] = cat
-
+        final["_ord"] = cat
         if "Solicitation Date" in final.columns:
-            final = final.sort_values(["_sort", "Solicitation Date"])
+            final = final.sort_values(["_ord", "Solicitation Date"])
         else:
-            final = final.sort_values(["_sort"])
-
-        final = final.drop(columns=["_sort"])
+            final = final.sort_values(["_ord"])
+        final = final.drop(columns=["_ord"])
 
     return final
 
 
 # -------------------------------------------------
-# FILTER ENGINE (COMPATIBLE WITH UPDATED LLM)
+# FILTERS (ALL date math done here)
 # -------------------------------------------------
 def lagos_today():
     return datetime.now(pytz.timezone("Africa/Lagos")).date()
@@ -276,23 +251,16 @@ def get_last_week_range():
     today = lagos_today()
     monday_this = today - timedelta(days=today.weekday())
     monday_last = monday_this - timedelta(days=7)
-    sunday_last = monday_last + timedelta(days=6)
-    return monday_last, sunday_last
+    return monday_last, monday_last + timedelta(days=6)
 
 
 def get_this_week_range():
     today = lagos_today()
     monday = today - timedelta(days=today.weekday())
-    sunday = monday + timedelta(days=6)
-    return monday, sunday
+    return monday, monday + timedelta(days=6)
 
 
 def apply_filters(df: pd.DataFrame, filters: List[Dict]) -> pd.DataFrame:
-    """
-    Apply filters generated by the LLM.
-    Python computes all date math.
-    ALWAYS safe with force_date().
-    """
     if not filters:
         return df
 
@@ -306,40 +274,38 @@ def apply_filters(df: pd.DataFrame, filters: List[Dict]) -> pd.DataFrame:
         if not col or col not in out.columns:
             continue
 
-        # Normalize date columns safely
+        # Always normalize date fields
         if col in ["Due Date", "Solicitation Date"]:
             out[col] = force_date(out[col])
 
-        # IN
+        # ---- IN ----
         if op == "in":
-            if isinstance(val, list):
-                out = out[out[col].isin(val)]
+            out = out[out[col].isin(val)]
             continue
 
-        # EQUALS
+        # ---- EQUALS ----
         if op == "equals":
             out = out[out[col] == val]
             continue
 
-        # CONTAINS
+        # ---- CONTAINS ----
         if op == "contains":
             s = out[col].astype(str)
             out = out[s.str.contains(str(val), case=False, na=False)]
             continue
 
-        # BETWEEN (explicit dates)
+        # ---- BETWEEN ----
         if op == "between":
             try:
-                start = pd.to_datetime(val[0], errors="coerce").date()
-                end = pd.to_datetime(val[1], errors="coerce").date()
-            except Exception:
+                d1 = pd.to_datetime(val[0], errors="coerce").date()
+                d2 = pd.to_datetime(val[1], errors="coerce").date()
+            except:
                 continue
-
             out = out.dropna(subset=[col])
-            out = out[(out[col] >= start) & (out[col] <= end)]
+            out = out[(out[col] >= d1) & (out[col] <= d2)]
             continue
 
-        # next_days
+        # ---- next_days ----
         if op == "next_days":
             today = lagos_today()
             future = today + timedelta(days=int(val))
@@ -347,42 +313,42 @@ def apply_filters(df: pd.DataFrame, filters: List[Dict]) -> pd.DataFrame:
             out = out[(out[col] >= today) & (out[col] <= future)]
             continue
 
-        # today
+        # ---- today ----
         if op == "today":
             t = lagos_today()
             out = out.dropna(subset=[col])
             out = out[out[col] == t]
             continue
 
-        # tomorrow
+        # ---- tomorrow ----
         if op == "tomorrow":
             t = lagos_today() + timedelta(days=1)
             out = out.dropna(subset=[col])
             out = out[out[col] == t]
             continue
 
-        # yesterday
+        # ---- yesterday ----
         if op == "yesterday":
             t = lagos_today() - timedelta(days=1)
             out = out.dropna(subset=[col])
             out = out[out[col] == t]
             continue
 
-        # this_week
+        # ---- this_week ----
         if op == "this_week":
-            s, e = get_this_week_range()
+            start, end = get_this_week_range()
             out = out.dropna(subset=[col])
-            out = out[(out[col] >= s) & (out[col] <= e)]
+            out = out[(out[col] >= start) & (out[col] <= end)]
             continue
 
-        # last_week
+        # ---- last_week ----
         if op == "last_week":
-            s, e = get_last_week_range()
+            start, end = get_last_week_range()
             out = out.dropna(subset=[col])
-            out = out[(out[col] >= s) & (out[col] <= e)]
+            out = out[(out[col] >= start) & (out[col] <= end)]
             continue
 
-        # last_7_days
+        # ---- last_7_days ----
         if op == "last_7_days":
             today = lagos_today()
             start = today - timedelta(days=7)
@@ -394,9 +360,9 @@ def apply_filters(df: pd.DataFrame, filters: List[Dict]) -> pd.DataFrame:
 
 
 # -------------------------------------------------
-# EXPORT HELPERS
+# EXPORTS
 # -------------------------------------------------
-def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Filtered") -> bytes:
+def to_excel_bytes(df: pd.DataFrame, sheet_name="Filtered") -> bytes:
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name=sheet_name[:31])
