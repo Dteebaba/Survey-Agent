@@ -111,6 +111,8 @@ def render_external_tools():
 
         <a class="ext-btn" href="https://chatgpt.com" target="_blank">ChatGPT</a>
 
+        <a class="ext-btn" href="https://chatgpt.com/g/g-6926512d2a5c8191b7260d3fe8d2b5d9-sam-excel-solicitation-analyzer" target="_blank">Sam Excel Solicitation Analyzer</a>
+
         <a class="ext-btn"
            href="https://www.perplexity.ai/"
            target="_blank">Perplexity AI</a>
