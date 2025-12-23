@@ -68,13 +68,12 @@ def log_event(action: str, status: str, message: str = "", extra: dict | None = 
 # -------------------------------------------------
 def hash_password(password: str) -> str:
     """Hash a password using SHA256"""
-    return hashlib.sha256(password.encode('utf-8').hexdigest())
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 
 def verify_password(password: str, hashed: str) -> bool:
     """Verify a password against its hash"""
     return hash_password(password) == hashed
-
 
 
 def load_users():
@@ -90,10 +89,16 @@ def load_users():
 
 
 def save_users(users):
-    """Save users to JSON file"""
+    """Save users to JSON file and GitHub Gist"""
     try:
+        # Save locally first
         with open('users.json', 'w') as f:
             json.dump(users, f, indent=4)
+        
+        # Also save to GitHub Gist if configured
+        from auth import save_users_to_gist
+        save_users_to_gist(users)
+        
         return True
     except Exception as e:
         st.error(f"Error saving users: {e}")
@@ -605,7 +610,7 @@ def show_admin():
                     success, message = add_user(new_username, new_password, new_role)
                     if success:
                         st.success(message)
-                        st.rerun()
+                        # Don't rerun - just show success message
                     else:
                         st.error(message)
                 else:

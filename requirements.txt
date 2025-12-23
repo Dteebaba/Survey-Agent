@@ -4,4 +4,4 @@ openpyxl
 python-dotenv
 openai
 pytz
-bcrypt
+requests
