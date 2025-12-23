@@ -1,190 +1,320 @@
-/* -------------------------------------------------
-   GLOBAL LAYOUT + TYPOGRAPHY 
-   ------------------------------------------------- */
+/* =========================================
+   SURVEY AGENT - MODERN STYLING
+   ========================================= */
+
+/* Global Reset & Base Styles */
+* {
+    box-sizing: border-box;
+}
 
 body {
-    font-family: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-    background: #F7F8FA;
-    color: #1F2937;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+        'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+        sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
-.main {
-    padding: 2.5rem 0;
-}
+/* Hide Streamlit Branding */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
 
+/* Main App Container */
 .app-shell {
-    max-width: 1080px;
+    max-width: 1400px;
     margin: 0 auto;
+    padding: 2rem 1.5rem;
 }
 
-/* -------------------------------------------------
-   CARDS (Notion-like white surfaces)
-   ------------------------------------------------- */
-
+/* Card Styles */
 .app-card {
-    background: #FFFFFF;
-    border-radius: 14px;
-    padding: 1.6rem 1.8rem;
+    background: white;
     border: 1px solid #E5E7EB;
-    margin-bottom: 1.1rem;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
-    transition: 0.2s ease-in-out;
+    border-radius: 12px;
+    padding: 1.75rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    transition: box-shadow 0.2s ease;
 }
 
 .app-card:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
-/* -------------------------------------------------
-   HEADERS & TEXT
-   ------------------------------------------------- */
-
+/* Title & Subtitle */
 .app-title {
-    font-size: 1.6rem;
+    font-size: 2rem;
     font-weight: 700;
-    margin-bottom: 0.25rem;
     color: #111827;
+    margin-bottom: 0.5rem;
+    letter-spacing: -0.025em;
 }
 
 .app-subtitle {
-    font-size: 0.95rem;
+    font-size: 1rem;
     color: #6B7280;
-    margin-bottom: 1.3rem;
+    line-height: 1.6;
 }
 
-.data-meta {
-    font-size: 0.85rem;
-    color: #6B7280;
-    margin-bottom: 0.6rem;
-}
-
-/* -------------------------------------------------
-   FEATURE GRID
-   ------------------------------------------------- */
-
+/* Feature Grid */
 .feature-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
-    gap: 1.3rem;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 2rem;
 }
 
 .feature-card {
-    background: #FFFFFF;
-    border-radius: 14px;
-    border: 1px solid #E5E7EB;
-    padding: 1.1rem 1.3rem;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px;
+    padding: 1.75rem;
+    color: white;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     transition: transform 0.2s ease, box-shadow 0.2s ease;
+    cursor: pointer;
 }
 
 .feature-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.10);
+    transform: translateY(-4px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+}
+
+.feature-card:nth-child(2) {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.feature-card:nth-child(3) {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.feature-card:nth-child(4) {
+    background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
 }
 
 .feature-title {
-    font-size: 1rem;
+    font-size: 1.25rem;
     font-weight: 600;
-    margin-bottom: 0.3rem;
-    color: #111827;
+    margin-bottom: 0.5rem;
+    letter-spacing: -0.015em;
 }
 
 .feature-desc {
-    font-size: 0.85rem;
-    color: #6B7280;
-    line-height: 1.35;
+    font-size: 0.9rem;
+    opacity: 0.95;
+    line-height: 1.5;
 }
 
-/* -------------------------------------------------
-   STREAMLIT BUTTONS (Minimal, Notion-like)
-   ------------------------------------------------- */
-
-.stButton > button {
-    background: #FFFFFF;
-    color: #111827;
+/* Data Meta Info */
+.data-meta {
+    background: #F9FAFB;
+    border: 1px solid #E5E7EB;
     border-radius: 8px;
-    padding: 0.55rem 1.3rem;
-    border: 1px solid #D1D5DB;
-    font-weight: 500;
+    padding: 0.875rem 1.25rem;
     font-size: 0.9rem;
-    transition: all 0.15s ease-in-out;
+    color: #374151;
+    margin-bottom: 1rem;
+}
+
+/* Streamlit Button Overrides */
+.stButton > button {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 0.625rem 1.5rem;
+    font-weight: 600;
+    font-size: 0.95rem;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .stButton > button:hover {
-    background: #F3F4F6;
-    border-color: #9CA3AF;
-    transform: translateY(-1px);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
-/* -------------------------------------------------
-   TEXT AREA / INPUT FIELDS
-   ------------------------------------------------- */
-
-textarea, input[type="text"] {
-    border-radius: 8px !important;
-    border: 1px solid #D1D5DB !important;
-    background: #FFFFFF !important;
-    padding: 0.6rem !important;
-    font-size: 0.9rem !important;
-    color: #111827 !important;
+.stButton > button:active {
+    transform: translateY(0);
 }
 
-/* -------------------------------------------------
-   FILE UPLOADER
-   ------------------------------------------------- */
-
-section[data-testid="stFileUploader"] {
-    border-radius: 12px;
-    padding: 1rem;
-    border: 1px dashed #D1D5DB;
-    background: #FFFFFF;
-}
-
-section[data-testid="stFileUploader"]:hover {
-    border-color: #9CA3AF;
-}
-
-/* -------------------------------------------------
-   EXTERNAL TOOL BUTTONS (Simplified Notion Pills)
-   ------------------------------------------------- */
-
-.ext-btn {
-    display: inline-block;
-    margin-right: 0.5rem;
-    margin-bottom: 0.5rem;
-    padding: 0.45rem 0.95rem;
-    border-radius: 999px;
-    background: #F3F4F6;
-    color: #111827 !important;
+/* Secondary Button Style */
+.stButton > button[kind="secondary"] {
+    background: white;
+    color: #374151;
     border: 1px solid #D1D5DB;
-    font-size: 0.85rem;
-    text-decoration: none;
-    font-weight: 500;
-    transition: 0.15s ease-in-out;
 }
 
-.ext-btn:hover {
-    background: #E5E7EB;
+.stButton > button[kind="secondary"]:hover {
+    background: #F9FAFB;
+    border-color: #9CA3AF;
 }
 
-/* -------------------------------------------------
-   TABLE / DATAFRAME CLEANUP
-   ------------------------------------------------- */
-
-.dataframe {
-    border-radius: 10px;
-    overflow: hidden;
-}
-
-/* -------------------------------------------------
-   STATUS BOX
-   ------------------------------------------------- */
-
-[data-testid="stStatus"] {
+/* File Uploader Styling */
+.stFileUploader {
+    border: 2px dashed #D1D5DB;
     border-radius: 12px;
-    padding: 1rem 1.2rem;
-    background: #FFFFFF;
+    padding: 2rem;
+    background: #F9FAFB;
+    transition: all 0.2s ease;
+}
+
+.stFileUploader:hover {
+    border-color: #667eea;
+    background: #F3F4F6;
+}
+
+/* Text Input & Text Area */
+.stTextInput > div > div > input,
+.stTextArea > div > div > textarea {
+    border-radius: 8px;
+    border: 1px solid #D1D5DB;
+    padding: 0.625rem 0.875rem;
+    font-size: 0.95rem;
+    transition: border-color 0.2s ease;
+}
+
+.stTextInput > div > div > input:focus,
+.stTextArea > div > div > textarea:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* Selectbox */
+.stSelectbox > div > div > select {
+    border-radius: 8px;
+    border: 1px solid #D1D5DB;
+    padding: 0.625rem 0.875rem;
+}
+
+/* Dataframe Styling */
+.stDataFrame {
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Expander */
+.streamlit-expanderHeader {
+    background: #F9FAFB;
+    border-radius: 8px;
+    font-weight: 600;
+    color: #374151;
+}
+
+/* Status Container */
+.stStatus {
+    border-radius: 8px;
     border: 1px solid #E5E7EB;
 }
 
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px;
+    border-bottom: 2px solid #E5E7EB;
+}
+
+.stTabs [data-baseweb="tab"] {
+    border-radius: 8px 8px 0 0;
+    padding: 0.625rem 1.25rem;
+    font-weight: 600;
+    color: #6B7280;
+}
+
+.stTabs [aria-selected="true"] {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+/* Success/Error/Warning Messages */
+.stSuccess {
+    background: #D1FAE5;
+    border-left: 4px solid #10B981;
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.stError {
+    background: #FEE2E2;
+    border-left: 4px solid #EF4444;
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.stWarning {
+    background: #FEF3C7;
+    border-left: 4px solid #F59E0B;
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.stInfo {
+    background: #DBEAFE;
+    border-left: 4px solid #3B82F6;
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+/* Download Button Customization */
+.stDownloadButton > button {
+    background: #10B981;
+    color: white;
+    border-radius: 8px;
+    font-weight: 600;
+}
+
+.stDownloadButton > button:hover {
+    background: #059669;
+}
+
+/* Spinner */
+.stSpinner > div {
+    border-top-color: #667eea;
+}
+
+/* Form */
+.stForm {
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    padding: 1.5rem;
+    background: #F9FAFB;
+}
+
+/* Divider */
+hr {
+    border: none;
+    border-top: 1px solid #E5E7EB;
+    margin: 1.5rem 0;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .app-shell {
+        padding: 1rem;
+    }
+    
+    .app-title {
+        font-size: 1.5rem;
+    }
+    
+    .feature-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Dark Mode Support (Optional) */
+@media (prefers-color-scheme: dark) {
+    .app-card {
+        background: #1F2937;
+        border-color: #374151;
+        color: #F9FAFB;
+    }
+    
+    .app-title {
+        color: #F9FAFB;
+    }
+    
+    .app-subtitle {
+        color: #D1D5DB;
+    }
+}

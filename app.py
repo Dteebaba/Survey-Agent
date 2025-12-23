@@ -1,6 +1,12 @@
 import datetime
+import json
+import bcrypt
 from pathlib import Path
 import streamlit as st
+
+# Initialize default admin on first run
+from init_admin import create_default_admin
+create_default_admin()
 
 from auth import check_access
 from data_engine import (
@@ -55,6 +61,128 @@ def log_event(action: str, status: str, message: str = "", extra: dict | None = 
         "message": message,
         "extra": extra or {},
     })
+
+
+# -------------------------------------------------
+# USER MANAGEMENT FUNCTIONS (ADMIN ONLY)
+# -------------------------------------------------
+def hash_password(password: str) -> bytes:
+    """Hash a password using bcrypt"""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+
+
+def verify_password(password: str, hashed: bytes) -> bool:
+    """Verify a password against its hash"""
+    return bcrypt.checkpw(password.encode('utf-8'), hashed)
+
+
+def load_users():
+    """Load users from JSON file"""
+    try:
+        with open('users.json', 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+    except Exception as e:
+        st.error(f"Error loading users: {e}")
+        return []
+
+
+def save_users(users):
+    """Save users to JSON file"""
+    try:
+        with open('users.json', 'w') as f:
+            json.dump(users, f, indent=4)
+        return True
+    except Exception as e:
+        st.error(f"Error saving users: {e}")
+        return False
+
+
+def add_user(username: str, password: str, role: str = "user"):
+    """Add a new user (admin only)"""
+    if st.session_state.get("role") != "admin":
+        return False, "Access denied. Only admins can add users."
+    
+    # Validate input
+    if len(username.strip()) < 3:
+        return False, "Username must be at least 3 characters long."
+    
+    if len(password) < 6:
+        return False, "Password must be at least 6 characters long."
+    
+    users = load_users()
+    
+    # Check if user already exists
+    if any(user['username'].lower() == username.lower() for user in users):
+        return False, "Username already exists."
+    
+    # Hash password and create user
+    hashed_pw = hash_password(password)
+    new_user = {
+        'username': username.strip(),
+        'password': hashed_pw.decode('utf-8'),
+        'role': role,
+        'created_at': datetime.datetime.now().isoformat(),
+        'created_by': st.session_state.get("username", "unknown")
+    }
+    
+    users.append(new_user)
+    
+    if save_users(users):
+        log_event("add_user", "success", f"Added user: {username}")
+        return True, f"User '{username}' added successfully!"
+    else:
+        return False, "Failed to save user data."
+
+
+def delete_user(username: str):
+    """Delete a user (admin only)"""
+    if st.session_state.get("role") != "admin":
+        return False, "Access denied. Only admins can delete users."
+    
+    users = load_users()
+    
+    # Prevent admin from deleting themselves
+    if username == st.session_state.get("username"):
+        return False, "You cannot delete your own account."
+    
+    # Filter out the user to delete
+    original_count = len(users)
+    users = [user for user in users if user['username'] != username]
+    
+    if len(users) == original_count:
+        return False, f"User '{username}' not found."
+    
+    if save_users(users):
+        log_event("delete_user", "success", f"Deleted user: {username}")
+        return True, f"User '{username}' deleted successfully!"
+    else:
+        return False, "Failed to save user data."
+
+
+def update_user_role(username: str, new_role: str):
+    """Update a user's role (admin only)"""
+    if st.session_state.get("role") != "admin":
+        return False, "Access denied. Only admins can update user roles."
+    
+    users = load_users()
+    
+    for user in users:
+        if user['username'] == username:
+            old_role = user['role']
+            user['role'] = new_role
+            user['updated_at'] = datetime.datetime.now().isoformat()
+            user['updated_by'] = st.session_state.get("username", "unknown")
+            
+            if save_users(users):
+                log_event("update_user_role", "success", 
+                         f"Updated {username} role from {old_role} to {new_role}")
+                return True, f"User '{username}' role updated to '{new_role}'!"
+            else:
+                return False, "Failed to save user data."
+    
+    return False, f"User '{username}' not found."
 
 
 # -------------------------------------------------
@@ -233,7 +361,7 @@ def show_home():
             """
             <div class='feature-card'>
                 <div class='feature-title'>Admin Console</div>
-                <div class='feature-desc'>View logs and system activity.</div>
+                <div class='feature-desc'>Manage users and view system activity.</div>
             """,
             unsafe_allow_html=True,
         )
@@ -426,13 +554,13 @@ def show_survey():
 
 
 # -------------------------------------------------
-# ADMIN PAGE
+# ADMIN PAGE (ENHANCED WITH USER MANAGEMENT)
 # -------------------------------------------------
 def show_admin():
     st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
 
     if st.session_state.get("role") != "admin":
-        st.error("Access denied.")
+        st.error("Access denied. Only administrators can access this page.")
         if st.button("Back to home"):
             goto("home")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -442,7 +570,7 @@ def show_admin():
         """
         <div class='app-card'>
             <div class='app-title'>Admin Console</div>
-            <div class='app-subtitle'>System activity logs.</div>
+            <div class='app-subtitle'>Manage users and view system activity.</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -451,17 +579,127 @@ def show_admin():
     if st.button("Back to home"):
         goto("home")
 
-    logs = st.session_state.activity_log
+    # Tabs for different admin functions
+    tab1, tab2 = st.tabs(["👥 User Management", "📊 Activity Logs"])
 
-    st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    st.markdown("### Activity Log", unsafe_allow_html=True)
+    with tab1:
+        st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+        
+        # Add New User Section
+        st.markdown("### Add New User")
+        with st.form("add_user_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                new_username = st.text_input("Username", placeholder="Enter username")
+                new_password = st.text_input("Password", type="password", placeholder="Enter password")
+            
+            with col2:
+                new_role = st.selectbox("Role", ["user", "admin"], index=0)
+                st.write("")  # Spacing
+                submit_add = st.form_submit_button("Add User", use_container_width=True)
+            
+            if submit_add:
+                if new_username and new_password:
+                    success, message = add_user(new_username, new_password, new_role)
+                    if success:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+                else:
+                    st.warning("Please fill in both username and password.")
 
-    if not logs:
-        st.write("No activity yet.")
-    else:
-        st.dataframe(logs)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("</div>", unsafe_allow_html=True)
+        # Current Users Section
+        st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+        st.markdown("### Current Users")
+        
+        users = load_users()
+        
+        if not users:
+            st.info("No users found. Add the first user above.")
+        else:
+            # Display users in a nice format
+            for i, user in enumerate(users):
+                col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
+                
+                with col1:
+                    st.write(f"**{user['username']}**")
+                
+                with col2:
+                    current_role = user['role']
+                    new_role = st.selectbox(
+                        "Role", 
+                        ["user", "admin"], 
+                        index=0 if current_role == "user" else 1,
+                        key=f"role_{i}"
+                    )
+                    
+                    if new_role != current_role:
+                        if st.button("Update Role", key=f"update_{i}"):
+                            success, message = update_user_role(user['username'], new_role)
+                            if success:
+                                st.success(message)
+                                st.rerun()
+                            else:
+                                st.error(message)
+                
+                with col3:
+                    created_date = user.get('created_at', 'Unknown')
+                    if created_date != 'Unknown':
+                        try:
+                            created_date = datetime.datetime.fromisoformat(created_date).strftime("%Y-%m-%d")
+                        except:
+                            created_date = 'Unknown'
+                    st.write(f"Created: {created_date}")
+                
+                with col4:
+                    # Prevent admin from deleting themselves
+                    if user['username'] != st.session_state.get("username"):
+                        if st.button("Delete", key=f"delete_{i}", type="secondary"):
+                            success, message = delete_user(user['username'])
+                            if success:
+                                st.success(message)
+                                st.rerun()
+                            else:
+                                st.error(message)
+                    else:
+                        st.write("*(Current User)*")
+                
+                st.divider()
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with tab2:
+        # Activity Logs Section (existing functionality)
+        logs = st.session_state.activity_log
+
+        st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+        st.markdown("### Activity Log")
+
+        if not logs:
+            st.info("No activity logged yet.")
+        else:
+            # Convert logs to a more readable format
+            import pandas as pd
+            df_logs = pd.DataFrame(logs)
+            
+            # Format timestamp
+            if 'timestamp' in df_logs.columns:
+                df_logs['timestamp'] = pd.to_datetime(df_logs['timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
+            
+            st.dataframe(df_logs, use_container_width=True)
+            
+            # Option to clear logs
+            if st.button("Clear All Logs", type="secondary"):
+                st.session_state.activity_log = []
+                st.success("Activity logs cleared.")
+                st.rerun()
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 

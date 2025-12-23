@@ -1,30 +1,61 @@
 import streamlit as st
+import json
+import bcrypt
 
+def load_users():
+    """Load users from JSON file"""
+    try:
+        with open('users.json', 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+
+def verify_password(password: str, hashed_password: str) -> bool:
+    """Verify a password against its hash"""
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except:
+        return False
 
 def check_access():
     """
-    Simple access-code authentication using [access_codes] in Streamlit secrets.
-    Stores role in st.session_state["role"].
+    Username/password authentication using users.json database
     """
     if st.session_state.get("authenticated"):
         return  # already logged in
 
     st.title("Survey Agent – Sign In")
-    st.write("Please enter the access code provided to you by the administrator.")
+    st.write("Please enter your username and password.")
 
-    code = st.text_input("Access code", type="password")
-    login = st.button("Sign in")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    login = st.button("Sign In")
 
     if login:
-        codes = st.secrets.get("access_codes", {})
-        if code in codes:
+        if not username or not password:
+            st.error("Please enter both username and password.")
+            st.stop()
+        
+        users = load_users()
+        user_found = None
+        
+        for user in users:
+            if user['username'].lower() == username.lower():
+                if verify_password(password, user['password']):
+                    user_found = user
+                    break
+        
+        if user_found:
             st.session_state["authenticated"] = True
-            st.session_state["role"] = codes[code]  # e.g. "admin" / "user"
-            st.success("Access granted. Loading workspace...")
+            st.session_state["role"] = user_found["role"]
+            st.session_state["username"] = user_found["username"]
+            st.success("Login successful. Loading workspace...")
             st.rerun()
         else:
-            st.error("Invalid access code. Please contact your admin.")
+            st.error("Invalid username or password.")
             st.stop()
 
-    # stop the rest of the app until authenticated
+    # Stop the rest of the app until authenticated
     st.stop()
