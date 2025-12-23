@@ -1,6 +1,6 @@
 import datetime
 import json
-import bcrypt
+import hashlib
 from pathlib import Path
 import streamlit as st
 
@@ -66,14 +66,15 @@ def log_event(action: str, status: str, message: str = "", extra: dict | None = 
 # -------------------------------------------------
 # USER MANAGEMENT FUNCTIONS (ADMIN ONLY)
 # -------------------------------------------------
-def hash_password(password: str) -> bytes:
-    """Hash a password using bcrypt"""
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+def hash_password(password: str) -> str:
+    """Hash a password using SHA256"""
+    return hashlib.sha256(password.encode('utf-8').hexdigest())
 
 
-def verify_password(password: str, hashed: bytes) -> bool:
+def verify_password(password: str, hashed: str) -> bool:
     """Verify a password against its hash"""
-    return bcrypt.checkpw(password.encode('utf-8'), hashed)
+    return hash_password(password) == hashed
+
 
 
 def load_users():
@@ -121,7 +122,7 @@ def add_user(username: str, password: str, role: str = "user"):
     hashed_pw = hash_password(password)
     new_user = {
         'username': username.strip(),
-        'password': hashed_pw.decode('utf-8'),
+        'password': hashed_pw,
         'role': role,
         'created_at': datetime.datetime.now().isoformat(),
         'created_by': st.session_state.get("username", "unknown")
