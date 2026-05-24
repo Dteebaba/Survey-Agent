@@ -1,0 +1,9 @@
+[
+    {
+        "username": "admin",
+        "password": "a197b62f8176b7d566ee4d5043bed72a4a320e51989cd00ee0a78ace35cd687f",
+        "role": "admin",
+        "created_at": "2024-01-01T00:00:00",
+        "created_by": "system"
+    }
+]
