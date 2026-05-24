@@ -5,3 +5,11 @@ python-dotenv
 openai
 pytz
 requests
+google-generativeai
+openai
+openpyxl
+pandas
+python-dotenv
+pytz
+requests
+streamlit
