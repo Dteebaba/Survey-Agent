@@ -35,6 +35,9 @@ wheels/
 .env
 .env.local
 
+# Connector OAuth tokens (auto-generated, contain sensitive access tokens)
+.connector_tokens.json
+
 
 
 # IDE

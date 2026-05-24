@@ -2,7 +2,7 @@ modules = ["python-3.12", "web", "nodejs-20"]
 [agent]
 expertMode = true
 stack = "BEST_EFFORT_FALLBACK"
-integrations = ["google-drive:1.0.0"]
+integrations = ["google-drive:1.0.0", "google-sheet:1.0.0"]
 
 [nix]
 channel = "stable-25_05"
@@ -39,3 +39,12 @@ externalPort = 80
 [deployment]
 deploymentTarget = "autoscale"
 run = ["streamlit", "run", "app.py", "--server.port=5000", "--server.address=0.0.0.0", "--server.headless=true", "--server.enableCORS=false", "--server.enableXsrfProtection=false"]
+
+[userenv]
+
+[userenv.shared]
+GOOGLE_DRIVE_FOLDER_ID = "1bSGpFbEW09jAq6pdn1i_WO8RUAa3DPUJ"
+GOOGLE_SHEETS_ID = "151jig9_3v-__dHfk7TksitJYONDMOLQV"
+GOOGLE_SHEETS_GID = "855559832"
+GOOGLE_DRIVE_CONN_ID = "conn_google-drive_01KSDA57A08JSFMSAYVQBYB8ZT"
+GOOGLE_SHEET_CONN_ID = "conn_google-sheet_01KSDA7Y7KAEDJ05ED0KJCR93R"

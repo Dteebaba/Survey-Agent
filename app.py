@@ -361,6 +361,19 @@ def show_home():
         goto("tools")
     st.markdown("</div>", unsafe_allow_html=True)
 
+    # Autonomous Agent Card
+    st.markdown(
+        """
+        <div class='feature-card'>
+            <div class='feature-title'>Autonomous Agent</div>
+            <div class='feature-desc'>Auto-scan Drive every 5 hrs, filter SDVOSB/SBA opps due in 14 days, append to master sheet.</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button("Open Autonomous Agent"):
+        goto("autonomous")
+    st.markdown("</div>", unsafe_allow_html=True)
+
     # Admin Console (Admins Only)
     if st.session_state.get("role") == "admin":
         st.markdown(
@@ -375,6 +388,161 @@ def show_home():
             goto("admin")
         st.markdown("</div>", unsafe_allow_html=True)
 
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# -------------------------------------------------
+# AUTONOMOUS AGENT PAGE
+# -------------------------------------------------
+def show_autonomous_agent():
+    import os
+    from datetime import datetime, timedelta
+    from agent_state import get_state
+
+    st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
+
+    st.markdown(
+        """
+        <div class='app-card'>
+            <div class='app-title'>Autonomous Agent</div>
+            <div class='app-subtitle'>
+                Automatically scans Google Drive every 5 hours for new opportunity files,
+                filters SDVOSB / SDVOSBC / SBA solicitations due within 14 days,
+                and appends results to the master Google Sheet.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if st.button("Back to home"):
+        goto("home")
+
+    # --- Status card ---
+    st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+    st.markdown("### Pipeline Status")
+
+    state = get_state()
+    last_run = state.get("last_run")
+    last_status = state.get("last_run_status")
+    last_rows = state.get("last_run_rows_added", 0)
+    last_file = state.get("last_run_file", "—")
+    seen_count = len(state.get("seen_file_ids", []))
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Files Processed (total)", seen_count)
+    with col2:
+        st.metric("Last Run Rows Added", last_rows)
+    with col3:
+        if last_run:
+            try:
+                dt = datetime.fromisoformat(last_run)
+                next_run = dt + timedelta(hours=5)
+                now = datetime.utcnow()
+                if next_run > now:
+                    mins = int((next_run - now).total_seconds() / 60)
+                    st.metric("Next Scheduled Run", f"in {mins} min")
+                else:
+                    st.metric("Next Scheduled Run", "Due now")
+            except Exception:
+                st.metric("Next Scheduled Run", "—")
+        else:
+            st.metric("Next Scheduled Run", "Not yet run")
+
+    if last_run:
+        try:
+            dt = datetime.fromisoformat(last_run)
+            run_str = dt.strftime("%Y-%m-%d %H:%M UTC")
+        except Exception:
+            run_str = last_run
+        status_icon = "✅" if last_status == "ok" else ("⚠️" if last_status == "skipped" else "❌")
+        st.info(f"{status_icon} Last run: **{run_str}** — {last_file} — status: {last_status} — {last_rows} rows added")
+    else:
+        st.info("No runs yet. Click **Run Now** to trigger the first scan.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # --- Manual trigger ---
+    st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+    st.markdown("### Manual Trigger")
+    st.write("Click to immediately scan the Drive folder and process any new files.")
+
+    col_btn, col_reset = st.columns([2, 1])
+    with col_btn:
+        run_now = st.button("Run Pipeline Now", type="primary")
+    with col_reset:
+        reset_seen = st.button("Reset Seen Files", type="secondary",
+                               help="Reprocess all files from scratch on next run")
+
+    if reset_seen:
+        from pathlib import Path
+        import json
+        state_file = Path("agent_state.json")
+        if state_file.exists():
+            s = json.loads(state_file.read_text())
+            s["seen_file_ids"] = []
+            state_file.write_text(json.dumps(s, indent=2))
+        st.success("Seen file list cleared. All files will be reprocessed on the next run.")
+        st.rerun()
+
+    if run_now:
+        from autonomous_agent import run_pipeline
+        progress_area = st.empty()
+        result_area = st.empty()
+
+        def update_progress(msg):
+            progress_area.info(f"⏳ {msg}")
+
+        with st.spinner("Running pipeline..."):
+            try:
+                summary = run_pipeline(progress_callback=update_progress)
+                progress_area.empty()
+                if summary["errors"]:
+                    result_area.error(
+                        f"Pipeline completed with errors:\n" +
+                        "\n".join(summary["errors"])
+                    )
+                else:
+                    result_area.success(
+                        f"Pipeline complete! "
+                        f"Checked {summary['files_checked']} files, "
+                        f"processed {summary['files_processed']} new, "
+                        f"added {summary['total_rows_added']} rows to the sheet."
+                    )
+                log_event("autonomous_pipeline", "success" if not summary["errors"] else "error",
+                          f"files={summary['files_checked']}, rows={summary['total_rows_added']}")
+                st.rerun()
+            except Exception as e:
+                progress_area.empty()
+                result_area.error(f"Pipeline failed: {e}")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # --- Run history ---
+    history = state.get("run_history", [])
+    if history:
+        st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+        st.markdown("### Run History (last 50)")
+        import pandas as pd
+        df_hist = pd.DataFrame(history)
+        if "timestamp" in df_hist.columns:
+            df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"]).dt.strftime("%Y-%m-%d %H:%M UTC")
+        st.dataframe(df_hist, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # --- Config info ---
+    st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+    st.markdown("### Configuration")
+    folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "1bSGpFbEW09jAq6pdn1i_WO8RUAa3DPUJ")
+    sheet_id = os.getenv("GOOGLE_SHEETS_ID", "151jig9_3v-__dHfk7TksitJYONDMOLQV")
+    st.markdown(
+        f"- **Drive Folder:** [Open in Drive](https://drive.google.com/drive/folders/{folder_id})\n"
+        f"- **Output Sheet:** [Open in Sheets](https://docs.google.com/spreadsheets/d/{sheet_id})\n"
+        f"- **Filter:** SDVOSB / SDVOSBC / SBA solicitations due within the next **14 days**\n"
+        f"- **Schedule:** Every **5 hours** (background scheduler runs while app is open)"
+    )
     st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -710,6 +878,35 @@ def show_admin():
 
 
 # -------------------------------------------------
+# BACKGROUND SCHEDULER (runs every 5 hours)
+# -------------------------------------------------
+def _maybe_run_pipeline_background():
+    """Check if 5 hours have passed since last run and trigger autonomously."""
+    from datetime import datetime, timedelta
+    from agent_state import get_last_run_time
+    import threading
+
+    def _run():
+        try:
+            from autonomous_agent import run_pipeline
+            run_pipeline()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Background pipeline error: {e}")
+
+    last = get_last_run_time()
+    now = datetime.utcnow()
+    if last is None or (now - last) >= timedelta(hours=5):
+        t = threading.Thread(target=_run, daemon=True, name="auto-pipeline")
+        if not any(th.name == "auto-pipeline" and th.is_alive()
+                   for th in threading.enumerate()):
+            t.start()
+
+
+_maybe_run_pipeline_background()
+
+
+# -------------------------------------------------
 # ROUTER
 # -------------------------------------------------
 if st.session_state.page == "home":
@@ -720,5 +917,7 @@ elif st.session_state.page == "training":
     show_training()
 elif st.session_state.page == "tools":
     show_tools()
+elif st.session_state.page == "autonomous":
+    show_autonomous_agent()
 elif st.session_state.page == "admin":
     show_admin()

@@ -106,11 +106,13 @@ def normalize_set_aside_column(df, col, ai_patterns=None, new_col="Normalized_Se
         if list_p:
             base.setdefault(bucket.strip(), []).extend(list_p)
 
-    lowered = df[col].astype(str).str.lower()
+    lowered = df[col].fillna("").astype(str).str.lower()
 
     def classify(v):
+        if not isinstance(v, str):
+            v = "" if (v != v) else str(v)
         v = v.strip().lower()
-        if v in ("", "none", "null", "n/a"):
+        if v in ("", "none", "null", "n/a", "nan"):
             return None
         for bucket, pats in base.items():
             for p in pats:
