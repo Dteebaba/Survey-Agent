@@ -407,9 +407,9 @@ def show_autonomous_agent():
         <div class='app-card'>
             <div class='app-title'>Autonomous Agent</div>
             <div class='app-subtitle'>
-                Automatically scans Google Drive every 5 hours for new opportunity files,
+                Automatically scans Google Drive every day at <strong>10 PM ET</strong> for new opportunity files,
                 filters SDVOSB / SDVOSBC / SBA solicitations due within 14 days,
-                and appends results to the master Google Sheet.
+                and appends results to the master Excel sheet.
             </div>
         </div>
         """,
@@ -436,20 +436,16 @@ def show_autonomous_agent():
     with col2:
         st.metric("Last Run Rows Added", last_rows)
     with col3:
-        if last_run:
-            try:
-                dt = datetime.fromisoformat(last_run)
-                next_run = dt + timedelta(hours=5)
-                now = datetime.utcnow()
-                if next_run > now:
-                    mins = int((next_run - now).total_seconds() / 60)
-                    st.metric("Next Scheduled Run", f"in {mins} min")
-                else:
-                    st.metric("Next Scheduled Run", "Due now")
-            except Exception:
-                st.metric("Next Scheduled Run", "—")
+        _et_offset = timedelta(hours=-4)
+        _now_et = datetime.utcnow() + _et_offset
+        _target_et = _now_et.replace(hour=22, minute=0, second=0, microsecond=0)
+        if _now_et >= _target_et:
+            _next_et = _target_et + timedelta(days=1)
         else:
-            st.metric("Next Scheduled Run", "Not yet run")
+            _next_et = _target_et
+        _mins_to = int((_next_et - _now_et).total_seconds() / 60)
+        _h, _m = divmod(_mins_to, 60)
+        st.metric("Next Scheduled Run", f"10 PM ET (in {_h}h {_m}m)")
 
     if last_run:
         try:
@@ -466,15 +462,18 @@ def show_autonomous_agent():
 
     # --- Manual trigger ---
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    st.markdown("### Manual Trigger")
-    st.write("Click to immediately scan the Drive folder and process any new files.")
+    st.markdown("### Run Update")
+    st.write("Scan Google Drive for the latest opportunity files and append any new qualifying rows to the master sheet.")
 
-    col_btn, col_reset = st.columns([2, 1])
+    col_btn, col_reset, col_dv = st.columns([3, 2, 2])
     with col_btn:
-        run_now = st.button("Run Pipeline Now", type="primary")
+        run_now = st.button("▶ Run Latest Update", type="primary", use_container_width=True)
     with col_reset:
-        reset_seen = st.button("Reset Seen Files", type="secondary",
-                               help="Reprocess all files from scratch on next run")
+        reset_seen = st.button("Reset Seen Files", type="secondary", use_container_width=True,
+                               help="Mark all files as unprocessed so everything is reprocessed on the next run")
+    with col_dv:
+        apply_dv = st.button("Apply Dropdown to Sheet", type="secondary", use_container_width=True,
+                             help="Re-apply the Progress Report dropdown validation to Solicitations.xlsx")
 
     if reset_seen:
         from pathlib import Path
@@ -486,6 +485,15 @@ def show_autonomous_agent():
             state_file.write_text(json.dumps(s, indent=2))
         st.success("Seen file list cleared. All files will be reprocessed on the next run.")
         st.rerun()
+
+    if apply_dv:
+        with st.spinner("Applying dropdown to Solicitations.xlsx..."):
+            try:
+                from google_connector import apply_progress_dropdown
+                apply_progress_dropdown()
+                st.success("Done! Column I (Progress Report) now has a dropdown in your Excel file.")
+            except Exception as e:
+                st.error(f"Failed to apply dropdown: {e}")
 
     if run_now:
         from autonomous_agent import run_pipeline
@@ -506,7 +514,7 @@ def show_autonomous_agent():
                     )
                 else:
                     result_area.success(
-                        f"Pipeline complete! "
+                        f"✅ Update complete! "
                         f"Checked {summary['files_checked']} files, "
                         f"processed {summary['files_processed']} new, "
                         f"added {summary['total_rows_added']} rows to the sheet."
@@ -878,29 +886,43 @@ def show_admin():
 
 
 # -------------------------------------------------
-# BACKGROUND SCHEDULER (runs every 5 hours)
+# BACKGROUND SCHEDULER (runs daily at 10 PM ET)
 # -------------------------------------------------
 def _maybe_run_pipeline_background():
-    """Check if 5 hours have passed since last run and trigger autonomously."""
-    from datetime import datetime, timedelta
+    """Fire the pipeline once per day at 10 PM ET (UTC-4, EDT)."""
+    from datetime import datetime, timedelta, timezone
     from agent_state import get_last_run_time
+    import logging
     import threading
+
+    ET_OFFSET = timedelta(hours=-4)
+    now_utc = datetime.utcnow()
+    now_et = now_utc + ET_OFFSET
+
+    # Today's 10 PM ET expressed in UTC
+    target_et = now_et.replace(hour=22, minute=0, second=0, microsecond=0)
+    target_utc = target_et - ET_OFFSET
+
+    # Only fire if we are at or past 10 PM ET today
+    if now_et.hour < 22:
+        return
+
+    # Only fire once per day — skip if last run was already after today's 10 PM target
+    last = get_last_run_time()
+    if last is not None and last >= target_utc:
+        return
 
     def _run():
         try:
             from autonomous_agent import run_pipeline
             run_pipeline()
         except Exception as e:
-            import logging
             logging.getLogger(__name__).error(f"Background pipeline error: {e}")
 
-    last = get_last_run_time()
-    now = datetime.utcnow()
-    if last is None or (now - last) >= timedelta(hours=5):
-        t = threading.Thread(target=_run, daemon=True, name="auto-pipeline")
-        if not any(th.name == "auto-pipeline" and th.is_alive()
-                   for th in threading.enumerate()):
-            t.start()
+    t = threading.Thread(target=_run, daemon=True, name="auto-pipeline")
+    if not any(th.name == "auto-pipeline" and th.is_alive()
+               for th in threading.enumerate()):
+        t.start()
 
 
 _maybe_run_pipeline_background()

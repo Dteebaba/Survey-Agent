@@ -8,6 +8,7 @@ import io
 import os
 import requests
 import openpyxl
+from openpyxl.worksheet.datavalidation import DataValidation
 from token_store import get_token
 
 SPREADSHEET_FILE_ID = os.getenv("GOOGLE_SHEETS_ID", "151jig9_3v-__dHfk7TksitJYONDMOLQV")
@@ -118,6 +119,42 @@ def append_rows_to_xlsx(rows: list, output_columns: list) -> int:
             ws.cell(row=next_row, column=col_idx, value=cell_val)
         next_row += 1
 
+    # Add / refresh dropdown validation on "Progress Report" column (col I = 9)
+    PROGRESS_OPTIONS = (
+        "Bid Submitted,Bid InProgress,Sub Contractor Inquiry,"
+        "Bid Past Due Date,Bid Quote Requested"
+    )
+    progress_col_idx = header_map.get("Progress Report")
+    if progress_col_idx is None:
+        # Fallback: find by stripping trailing spaces
+        for h, idx in header_map.items():
+            if h.strip() == "Progress Report":
+                progress_col_idx = idx
+                break
+
+    if progress_col_idx is not None:
+        col_letter = openpyxl.utils.get_column_letter(progress_col_idx)
+        last_data_row = ws.max_row
+        dv_range = f"{col_letter}2:{col_letter}{max(last_data_row, 1000)}"
+
+        # Remove any existing validation on this column to avoid duplicates
+        ws.data_validations.dataValidation = [
+            v for v in ws.data_validations.dataValidation
+            if col_letter not in str(v.sqref)
+        ]
+
+        dv = DataValidation(
+            type="list",
+            formula1=f'"{PROGRESS_OPTIONS}"',
+            allow_blank=True,
+            showDropDown=False,
+            showErrorMessage=True,
+            errorTitle="Invalid option",
+            error="Please choose a value from the dropdown list.",
+        )
+        dv.sqref = dv_range
+        ws.add_data_validation(dv)
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -128,3 +165,60 @@ def append_rows_to_xlsx(rows: list, output_columns: list) -> int:
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
     return len(rows)
+
+
+def apply_progress_dropdown() -> None:
+    """
+    Download the master xlsx, add the Progress Report dropdown to column I
+    (all data rows), and re-upload. Safe to call at any time.
+    """
+    PROGRESS_OPTIONS = (
+        "Bid Submitted,Bid InProgress,Sub Contractor Inquiry,"
+        "Bid Past Due Date,Bid Quote Requested"
+    )
+
+    raw = download_drive_file(SPREADSHEET_FILE_ID)
+    wb = openpyxl.load_workbook(io.BytesIO(raw))
+    ws = wb[SHEET_TAB_NAME]
+
+    # Locate Progress Report column
+    progress_col_idx = None
+    for c in range(1, ws.max_column + 1):
+        val = ws.cell(1, c).value
+        if val and str(val).strip() == "Progress Report":
+            progress_col_idx = c
+            break
+
+    if progress_col_idx is None:
+        return
+
+    col_letter = openpyxl.utils.get_column_letter(progress_col_idx)
+    last_row = max(ws.max_row, 1000)
+    dv_range = f"{col_letter}2:{col_letter}{last_row}"
+
+    # Remove existing validations on this column
+    ws.data_validations.dataValidation = [
+        v for v in ws.data_validations.dataValidation
+        if col_letter not in str(v.sqref)
+    ]
+
+    dv = DataValidation(
+        type="list",
+        formula1=f'"{PROGRESS_OPTIONS}"',
+        allow_blank=True,
+        showDropDown=False,
+        showErrorMessage=True,
+        errorTitle="Invalid option",
+        error="Please choose a value from the dropdown list.",
+    )
+    dv.sqref = dv_range
+    ws.add_data_validation(dv)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    upload_drive_file(
+        SPREADSHEET_FILE_ID,
+        buf.getvalue(),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
