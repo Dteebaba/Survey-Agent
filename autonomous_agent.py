@@ -51,12 +51,13 @@ OUTPUT_COLUMNS = [
     "Award Date",
 ]
 
-# Set-aside categories that qualify (SDVOSB, SDVOSBC, SBA-related)
+# Set-aside categories that qualify.
+# These must exactly match the bucket keys produced by normalize_set_aside_column()
+# in data_engine.py so nothing slips through.
 QUALIFYING_SET_ASIDES = {
-    "SDVOSB",
-    "SDVOSBС",  # Cyrillic С variant
-    "TOTAL SMALL BUSINESS SET ASIDE",
-    "VETERAN OWNED SMALL BUSINESS (VOSB)",
+    "SDVOSB",                        # service-disabled / sdvosb / sdvosbc (substring match)
+    "TOTAL SMALL BUSINESS SET ASIDE", # total small business / 100% small business
+    "VETERAN OWNED SMALL BUSINESS (VOSB)",  # vosb / veteran
     "SBA Certified Economically Disadvantaged WOSB (EDWOSB) Program Set-Aside (FAR 19.15)",
 }
 
