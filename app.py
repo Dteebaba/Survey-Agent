@@ -427,12 +427,54 @@ def show_autonomous_agent():
     last_run = state.get("last_run")
     last_status = state.get("last_run_status")
     last_rows = state.get("last_run_rows_added", 0)
-    last_file = state.get("last_run_file", "—")
     seen_count = len(state.get("seen_file_ids", []))
+
+    # Last reviewed
+    last_reviewed_file = state.get("last_reviewed_file") or "—"
+    last_reviewed_time = state.get("last_reviewed_time")
+    # Last appended
+    last_appended_file = state.get("last_appended_file") or "—"
+    last_appended_time = state.get("last_appended_time")
+    last_appended_rows = state.get("last_appended_rows", 0)
+
+    def _fmt_time(iso):
+        if not iso:
+            return "Never"
+        try:
+            return datetime.fromisoformat(iso).strftime("%b %d, %Y  %H:%M UTC")
+        except Exception:
+            return iso
+
+    # Two prominent info boxes
+    box1, box2 = st.columns(2)
+    with box1:
+        st.markdown(
+            f"""
+            <div style='background:#f0f4ff;border-left:4px solid #4a6cf7;padding:14px 18px;border-radius:8px;'>
+                <div style='font-size:0.78rem;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.05em;'>Last Sheet Reviewed</div>
+                <div style='font-size:1.05rem;font-weight:700;color:#1a1a2e;margin:4px 0 2px;'>{last_reviewed_file}</div>
+                <div style='font-size:0.82rem;color:#555;'>{_fmt_time(last_reviewed_time)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with box2:
+        st.markdown(
+            f"""
+            <div style='background:#f0fff4;border-left:4px solid #22c55e;padding:14px 18px;border-radius:8px;'>
+                <div style='font-size:0.78rem;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.05em;'>Last Appended to Sheet</div>
+                <div style='font-size:1.05rem;font-weight:700;color:#1a1a2e;margin:4px 0 2px;'>{last_appended_file}</div>
+                <div style='font-size:0.82rem;color:#555;'>{_fmt_time(last_appended_time)}{"  •  " + str(last_appended_rows) + " rows added" if last_appended_rows else ""}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Files Processed (total)", seen_count)
+        st.metric("Total Files Processed", seen_count)
     with col2:
         st.metric("Last Run Rows Added", last_rows)
     with col3:
@@ -447,16 +489,8 @@ def show_autonomous_agent():
         _h, _m = divmod(_mins_to, 60)
         st.metric("Next Scheduled Run", f"10 PM ET (in {_h}h {_m}m)")
 
-    if last_run:
-        try:
-            dt = datetime.fromisoformat(last_run)
-            run_str = dt.strftime("%Y-%m-%d %H:%M UTC")
-        except Exception:
-            run_str = last_run
-        status_icon = "✅" if last_status == "ok" else ("⚠️" if last_status == "skipped" else "❌")
-        st.info(f"{status_icon} Last run: **{run_str}** — {last_file} — status: {last_status} — {last_rows} rows added")
-    else:
-        st.info("No runs yet. Click **Run Now** to trigger the first scan.")
+    if not last_reviewed_time:
+        st.info("No runs yet. Click **▶ Run Latest Update** to trigger the first scan.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 

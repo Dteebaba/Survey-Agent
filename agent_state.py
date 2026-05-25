@@ -18,6 +18,11 @@ def _load() -> dict:
         "last_run_status": None,
         "last_run_rows_added": 0,
         "last_run_file": None,
+        "last_reviewed_file": None,
+        "last_reviewed_time": None,
+        "last_appended_file": None,
+        "last_appended_time": None,
+        "last_appended_rows": 0,
         "run_history": [],
     }
 
@@ -40,6 +45,16 @@ def mark_file_seen(file_id: str, file_name: str, rows_added: int, status: str = 
     state["last_run_status"] = status
     state["last_run_rows_added"] = rows_added
     state["last_run_file"] = file_name
+
+    # Always update "last reviewed" — every file scanned counts
+    state["last_reviewed_file"] = file_name
+    state["last_reviewed_time"] = now
+
+    # Only update "last appended" when rows were actually written
+    if rows_added > 0:
+        state["last_appended_file"] = file_name
+        state["last_appended_time"] = now
+        state["last_appended_rows"] = rows_added
 
     entry = {
         "timestamp": now,
