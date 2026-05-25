@@ -30,6 +30,7 @@ from google_connector import (
     get_existing_solicitation_numbers,
     list_drive_files,
 )
+from llm_agent import classify_set_aside_descriptions
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -93,6 +94,66 @@ def _apply_autonomous_filter(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _normalize_set_aside_three_tier(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Three-tier set-aside normalization:
+      Tier 1 — TypeOfSetAside short code  (fast, exact, e.g. 'SBA', 'SDVOSB')
+      Tier 2 — TypeOfSetAsideDescription  (full text fallback, pattern match)
+      Tier 3 — LLM                        (only for rows still unresolved)
+    Result is stored in 'Normalized_Set_Aside'.
+    """
+    df = df.copy()
+
+    # Tier 1: short code
+    df = normalize_set_aside_column(df, "TypeOfSetAside", {}, new_col="Normalized_Set_Aside")
+
+    # Find rows that Tier 1 didn't resolve (None or NO SET-ASIDE)
+    unresolved_mask = df["Normalized_Set_Aside"].isna() | (df["Normalized_Set_Aside"] == "NO SET-ASIDE")
+    unresolved_count = unresolved_mask.sum()
+
+    if unresolved_count == 0 or "TypeOfSetAsideDescription" not in df.columns:
+        return df
+
+    log.info(f"  Tier 2: trying description for {unresolved_count} unresolved rows")
+
+    # Tier 2: run pattern match on description column for unresolved rows
+    df_tier2 = df[unresolved_mask].copy()
+    df_tier2 = normalize_set_aside_column(
+        df_tier2, "TypeOfSetAsideDescription", {}, new_col="_tier2"
+    )
+    # Apply Tier 2 result where it's better than Tier 1
+    improved = df_tier2["_tier2"].notna() & (df_tier2["_tier2"] != "NO SET-ASIDE")
+    df.loc[unresolved_mask & improved.reindex(df.index, fill_value=False), "Normalized_Set_Aside"] = \
+        df_tier2.loc[improved, "_tier2"].values
+
+    # Re-check what's still unresolved after Tier 2
+    still_unresolved = df["Normalized_Set_Aside"].isna() | (df["Normalized_Set_Aside"] == "NO SET-ASIDE")
+    still_count = still_unresolved.sum()
+
+    if still_count == 0 or "TypeOfSetAsideDescription" not in df.columns:
+        return df
+
+    # Tier 3: LLM for anything still not resolved — batch unique descriptions
+    unique_descs = (
+        df.loc[still_unresolved, "TypeOfSetAsideDescription"]
+        .fillna("").astype(str).str.strip()
+        .replace("", None).dropna().unique().tolist()
+    )
+    if unique_descs:
+        log.info(f"  Tier 3: LLM classifying {len(unique_descs)} unique descriptions")
+        llm_map = classify_set_aside_descriptions(unique_descs)
+        if llm_map:
+            def apply_llm(row):
+                if still_unresolved.loc[row.name]:
+                    desc = str(row.get("TypeOfSetAsideDescription", "")).strip()
+                    if desc in llm_map:
+                        return llm_map[desc]
+                return row["Normalized_Set_Aside"]
+            df["Normalized_Set_Aside"] = df.apply(apply_llm, axis=1)
+
+    return df
+
+
 def _df_to_row_dicts(df: pd.DataFrame) -> list:
     """Convert DataFrame to list of dicts with OUTPUT_COLUMNS keys."""
     rows = []
@@ -127,7 +188,9 @@ def process_file(file_id: str, file_name: str) -> tuple:
         "uilink":              "UiLink",
     }
 
-    df = normalize_set_aside_column(df, "TypeOfSetAside", {}, new_col="Normalized_Set_Aside")
+    # Three-tier set-aside normalization:
+    # Tier 1 → TypeOfSetAside short code, Tier 2 → TypeOfSetAsideDescription text, Tier 3 → LLM
+    df = _normalize_set_aside_three_tier(df)
     df = normalize_opportunity_type_column(df, "Type", {}, new_col="Normalized_Opportunity_Type")
 
     final = build_final_output_table(df, COLUMN_MAP, drop_no_set_aside=False)

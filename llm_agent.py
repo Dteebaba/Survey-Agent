@@ -207,3 +207,57 @@ Schema to follow:
     plan.setdefault("plan_explanation", "")
 
     return plan
+
+
+# -------------------------------------------------
+# Set-aside classifier (fallback for unresolved rows)
+# -------------------------------------------------
+def classify_set_aside_descriptions(descriptions: list[str]) -> dict[str, str]:
+    """
+    Given a list of unique set-aside description strings that couldn't be
+    resolved by pattern matching, ask the LLM to classify each one into
+    one of the qualifying buckets or 'NO SET-ASIDE'.
+
+    Returns a dict mapping description → bucket name.
+    """
+    if not descriptions:
+        return {}
+
+    VALID_BUCKETS = [
+        "SDVOSB",
+        "TOTAL SMALL BUSINESS SET ASIDE",
+        "VETERAN OWNED SMALL BUSINESS (VOSB)",
+        "SBA Certified Economically Disadvantaged WOSB (EDWOSB) Program Set-Aside (FAR 19.15)",
+        "NO SET-ASIDE",
+    ]
+
+    prompt = (
+        "You are a federal procurement expert. Classify each set-aside description "
+        "below into exactly one of these buckets:\n"
+        + "\n".join(f"- {b}" for b in VALID_BUCKETS)
+        + "\n\nFor each description, reply with a JSON object mapping the description "
+        "to its bucket. Use 'NO SET-ASIDE' if it doesn't fit any qualifying category.\n\n"
+        "Descriptions to classify:\n"
+        + "\n".join(f"- {d}" for d in descriptions)
+    )
+
+    try:
+        r = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": "Return only valid JSON. No markdown."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0,
+        )
+        raw = r.choices[0].message.content.strip()
+        result = json.loads(raw)
+        # Sanitise: only keep known bucket values
+        return {
+            k: v if v in VALID_BUCKETS else "NO SET-ASIDE"
+            for k, v in result.items()
+        }
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"LLM set-aside classify failed: {e}")
+        return {}
