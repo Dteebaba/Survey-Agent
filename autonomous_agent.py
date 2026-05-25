@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 
-from agent_state import get_state, is_file_seen, mark_file_seen
+from agent_state import get_state, is_file_seen, mark_file_seen, get_last_processed_file_id
 from data_engine import (
     build_final_output_table,
     build_full_eda,
@@ -168,12 +168,15 @@ def process_file(file_id: str, file_name: str) -> tuple:
     return rows_added, f"Added {rows_added} rows"
 
 
-def run_pipeline(progress_callback=None, latest_only: bool = False) -> dict:
+def run_pipeline(progress_callback=None) -> dict:
     """
-    Main pipeline entry point.
-    latest_only=True  → process only the single most recent file (fast, for manual button).
-    latest_only=False → process all unseen files (for nightly scheduled run).
-    Returns a summary dict with results.
+    Main pipeline entry point — always checks only the latest file in Drive.
+
+    Logic:
+      1. Find the most recent CSV/xlsx in the Drive folder.
+      2. If it's the same file that was last processed → "No new updates yet."
+      3. If it's a new file → filter (set-aside + 14-day due date), deduplicate,
+         append qualifying rows to the master sheet.
     """
     summary = {
         "files_checked": 0,
@@ -181,66 +184,62 @@ def run_pipeline(progress_callback=None, latest_only: bool = False) -> dict:
         "total_rows_added": 0,
         "errors": [],
         "processed_files": [],
+        "message": "",
     }
 
     try:
         if progress_callback:
-            progress_callback("Scanning Google Drive folder...")
+            progress_callback("Checking Google Drive for the latest file...")
 
-        files = list_drive_files(DRIVE_FOLDER_ID)
-        summary["files_checked"] = len(files)
-        log.info(f"Found {len(files)} files in Drive folder")
+        all_files = list_drive_files(DRIVE_FOLDER_ID)
+        summary["files_checked"] = len(all_files)
 
-        new_files = [f for f in files if not is_file_seen(f["id"])]
-        log.info(f"{len(new_files)} new (unprocessed) files")
+        # Find the most recent spreadsheet file (Drive returns newest first)
+        latest = next(
+            (f for f in all_files
+             if f["name"].lower().endswith((".csv", ".xlsx", ".xls"))),
+            None,
+        )
 
-        if not new_files:
+        if not latest:
+            summary["message"] = "No spreadsheet files found in Drive folder."
+            log.info(summary["message"])
             if progress_callback:
-                progress_callback("No new files found — sheet is already up to date.")
+                progress_callback(summary["message"])
             return summary
 
-        # When running manually, only take the latest (first) file
-        if latest_only:
-            # files are ordered by createdTime desc, so first = most recent
-            csv_files = [f for f in new_files if f["name"].lower().endswith((".csv", ".xlsx", ".xls"))]
-            if not csv_files:
-                if progress_callback:
-                    progress_callback("No new spreadsheet files found.")
-                return summary
-            new_files = [csv_files[0]]
-            log.info(f"latest_only mode — processing 1 file: {new_files[0]['name']}")
+        latest_id = latest["id"]
+        latest_name = latest["name"]
+        log.info(f"Latest file in Drive: {latest_name}")
 
-        for f in new_files:
-            file_id = f["id"]
-            file_name = f["name"]
-
-            if not file_name.lower().endswith((".csv", ".xlsx", ".xls")):
-                log.info(f"  Skipping non-spreadsheet: {file_name}")
-                mark_file_seen(file_id, file_name, 0, status="skipped")
-                continue
-
+        # Compare to the last file we processed
+        last_processed_id = get_last_processed_file_id()
+        if last_processed_id and last_processed_id == latest_id:
+            summary["message"] = f"No new updates yet — latest file ({latest_name}) was already processed."
+            log.info(summary["message"])
             if progress_callback:
-                progress_callback(f"Processing: {file_name}")
+                progress_callback(summary["message"])
+            return summary
 
-            try:
-                rows_added, msg = process_file(file_id, file_name)
-                mark_file_seen(file_id, file_name, rows_added, status="ok")
-                summary["files_processed"] += 1
-                summary["total_rows_added"] += rows_added
-                summary["processed_files"].append({
-                    "name": file_name,
-                    "rows_added": rows_added,
-                    "message": msg,
-                })
-                log.info(f"  Done: {msg}")
-            except Exception as e:
-                err = f"{file_name}: {e}"
-                log.error(f"  Error: {err}\n{traceback.format_exc()}")
-                mark_file_seen(file_id, file_name, 0, status="error", error=str(e))
-                summary["errors"].append(err)
+        # New file found — process it
+        if progress_callback:
+            progress_callback(f"New file found: {latest_name} — processing...")
+
+        rows_added, msg = process_file(latest_id, latest_name)
+        mark_file_seen(latest_id, latest_name, rows_added, status="ok")
+        summary["files_processed"] = 1
+        summary["total_rows_added"] = rows_added
+        summary["processed_files"].append({
+            "name": latest_name,
+            "rows_added": rows_added,
+            "message": msg,
+        })
+        summary["message"] = msg
+        log.info(f"Done: {msg}")
 
     except Exception as e:
         summary["errors"].append(f"Pipeline error: {e}")
+        summary["message"] = f"Error: {e}"
         log.error(traceback.format_exc())
 
     return summary

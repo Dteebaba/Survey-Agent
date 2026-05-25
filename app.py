@@ -539,19 +539,18 @@ def show_autonomous_agent():
 
         with st.spinner("Running pipeline..."):
             try:
-                summary = run_pipeline(progress_callback=update_progress, latest_only=True)
+                summary = run_pipeline(progress_callback=update_progress)
                 progress_area.empty()
                 if summary["errors"]:
                     result_area.error(
-                        f"Pipeline completed with errors:\n" +
-                        "\n".join(summary["errors"])
+                        f"Pipeline error:\n" + "\n".join(summary["errors"])
                     )
+                elif summary["files_processed"] == 0:
+                    result_area.info(f"ℹ️ {summary.get('message', 'No new updates yet.')}")
                 else:
                     result_area.success(
-                        f"✅ Update complete! "
-                        f"Checked {summary['files_checked']} files, "
-                        f"processed {summary['files_processed']} new, "
-                        f"added {summary['total_rows_added']} rows to the sheet."
+                        f"✅ {summary['processed_files'][0]['name']} — "
+                        f"{summary['total_rows_added']} rows appended to the sheet."
                     )
                 log_event("autonomous_pipeline", "success" if not summary["errors"] else "error",
                           f"files={summary['files_checked']}, rows={summary['total_rows_added']}")

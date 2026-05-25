@@ -49,6 +49,7 @@ def mark_file_seen(file_id: str, file_name: str, rows_added: int, status: str = 
     # Always update "last reviewed" — every file scanned counts
     state["last_reviewed_file"] = file_name
     state["last_reviewed_time"] = now
+    state["last_processed_file_id"] = file_id
 
     # Only update "last appended" when rows were actually written
     if rows_added > 0:
@@ -75,6 +76,11 @@ def mark_file_seen(file_id: str, file_name: str, rows_added: int, status: str = 
 
 def is_file_seen(file_id: str) -> bool:
     return file_id in _load()["seen_file_ids"]
+
+
+def get_last_processed_file_id() -> str | None:
+    """Return the file_id of the last file that was successfully processed."""
+    return _load().get("last_processed_file_id")
 
 
 def get_last_run_time() -> datetime | None:

@@ -2,99 +2,23 @@
   "seen_file_ids": [
     "1eAuUL82DmkRzSKDHRXheeNTtyxkRd-_Q"
   ],
-  "last_run": "2026-05-25T00:19:09.650096",
+  "last_run": "2026-05-25T00:23:25.499284",
   "last_run_status": "ok",
   "last_run_rows_added": 0,
   "last_run_file": "Opportunities_05-23-2026_to_05-23-2026.csv",
   "run_history": [
     {
-      "timestamp": "2026-05-25T00:19:09.650096",
+      "timestamp": "2026-05-25T00:23:25.499284",
       "file_id": "1eAuUL82DmkRzSKDHRXheeNTtyxkRd-_Q",
       "file_name": "Opportunities_05-23-2026_to_05-23-2026.csv",
       "rows_added": 0,
       "status": "ok"
-    },
-    {
-      "timestamp": "2026-05-25T00:18:01.076452",
-      "file_id": "11eOxxdHyTDdBSsRmP-siOGJaA6MmakcP",
-      "file_name": "Opportunities_05-14-2026_to_05-14-2026.csv",
-      "rows_added": 220,
-      "status": "ok"
-    },
-    {
-      "timestamp": "2026-05-25T00:17:48.611441",
-      "file_id": "1lACPXIUVpFid6GyagK7tMsmf0Cx2u32t",
-      "file_name": "Opportunities_05-15-2026_to_05-15-2026.csv",
-      "rows_added": 109,
-      "status": "ok"
-    },
-    {
-      "timestamp": "2026-05-25T00:17:36.986823",
-      "file_id": "1PfL5I-A7YOVHliTiwv3VPpVBwbSSiWOP",
-      "file_name": "Opportunities_05-17-2026_to_05-17-2026.csv",
-      "rows_added": 103,
-      "status": "ok"
-    },
-    {
-      "timestamp": "2026-05-25T00:17:25.771560",
-      "file_id": "1VMBly-NUkSjNyZHpQhkhD-NHkSk2HRLc",
-      "file_name": "Opportunities_05-16-2026_to_05-16-2026.csv",
-      "rows_added": 3,
-      "status": "ok"
-    },
-    {
-      "timestamp": "2026-05-25T00:17:15.631723",
-      "file_id": "1Zv_aMVj9Te3Pc17etdpwV8GActy-a-JL",
-      "file_name": "Opportunities_05-18-2026_to_05-18-2026.csv",
-      "rows_added": 281,
-      "status": "ok"
-    },
-    {
-      "timestamp": "2026-05-25T00:17:00.640435",
-      "file_id": "1JUZXBj-xX6q-LdwKli7-tfJZFsnK3jCr",
-      "file_name": "Opportunities_05-19-2026_to_05-19-2026.csv",
-      "rows_added": 470,
-      "status": "ok"
-    },
-    {
-      "timestamp": "2026-05-25T00:16:49.722846",
-      "file_id": "1mgPVB9lQwnwNY0zup6Ar6EKr6BpGXUa-",
-      "file_name": "Opportunities_05-20-2026_to_05-20-2026.csv",
-      "rows_added": 8,
-      "status": "ok"
-    },
-    {
-      "timestamp": "2026-05-25T00:16:36.652599",
-      "file_id": "1bklT0Y9FlVjRKr60567mjd-4DA9NwqnP",
-      "file_name": "Opportunities_05-21-2026_to_05-21-2026.csv",
-      "rows_added": 14,
-      "status": "ok"
-    },
-    {
-      "timestamp": "2026-05-25T00:16:25.564553",
-      "file_id": "1S3XyKUYh5I_lomFa1O_JTI7V9_HAsM5_",
-      "file_name": "Opportunities_05-22-2026_to_05-22-2026.csv",
-      "rows_added": 1,
-      "status": "ok"
-    },
-    {
-      "timestamp": "2026-05-25T00:16:16.650340",
-      "file_id": "1eAuUL82DmkRzSKDHRXheeNTtyxkRd-_Q",
-      "file_name": "Opportunities_05-23-2026_to_05-23-2026.csv",
-      "rows_added": 0,
-      "status": "ok"
-    },
-    {
-      "timestamp": "2026-05-25T00:16:08.595903",
-      "file_id": "1GX_WplwgzFvho6gBKhdH5hBvaXyCd4otMfpEtwHjV9A",
-      "file_name": "Opportunities_05-23-2026_to_05-23-2026",
-      "rows_added": 0,
-      "status": "skipped"
     }
   ],
   "last_reviewed_file": "Opportunities_05-23-2026_to_05-23-2026.csv",
-  "last_reviewed_time": "2026-05-25T00:19:09.650096",
-  "last_appended_file": "Opportunities_05-14-2026_to_05-14-2026.csv",
-  "last_appended_time": "2026-05-25T00:18:01.076452",
-  "last_appended_rows": 220
+  "last_reviewed_time": "2026-05-25T00:23:25.499284",
+  "last_appended_file": null,
+  "last_appended_time": null,
+  "last_appended_rows": 0,
+  "last_processed_file_id": "1eAuUL82DmkRzSKDHRXheeNTtyxkRd-_Q"
 }
