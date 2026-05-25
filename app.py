@@ -539,7 +539,7 @@ def show_autonomous_agent():
 
         with st.spinner("Running pipeline..."):
             try:
-                summary = run_pipeline(progress_callback=update_progress)
+                summary = run_pipeline(progress_callback=update_progress, latest_only=True)
                 progress_area.empty()
                 if summary["errors"]:
                     result_area.error(

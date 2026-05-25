@@ -168,9 +168,11 @@ def process_file(file_id: str, file_name: str) -> tuple:
     return rows_added, f"Added {rows_added} rows"
 
 
-def run_pipeline(progress_callback=None) -> dict:
+def run_pipeline(progress_callback=None, latest_only: bool = False) -> dict:
     """
     Main pipeline entry point.
+    latest_only=True  → process only the single most recent file (fast, for manual button).
+    latest_only=False → process all unseen files (for nightly scheduled run).
     Returns a summary dict with results.
     """
     summary = {
@@ -194,8 +196,19 @@ def run_pipeline(progress_callback=None) -> dict:
 
         if not new_files:
             if progress_callback:
-                progress_callback("No new files found.")
+                progress_callback("No new files found — sheet is already up to date.")
             return summary
+
+        # When running manually, only take the latest (first) file
+        if latest_only:
+            # files are ordered by createdTime desc, so first = most recent
+            csv_files = [f for f in new_files if f["name"].lower().endswith((".csv", ".xlsx", ".xls"))]
+            if not csv_files:
+                if progress_callback:
+                    progress_callback("No new spreadsheet files found.")
+                return summary
+            new_files = [csv_files[0]]
+            log.info(f"latest_only mode — processing 1 file: {new_files[0]['name']}")
 
         for f in new_files:
             file_id = f["id"]
