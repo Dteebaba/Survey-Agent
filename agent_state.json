@@ -2,11 +2,18 @@
   "seen_file_ids": [
     "1eAuUL82DmkRzSKDHRXheeNTtyxkRd-_Q"
   ],
-  "last_run": "2026-05-25T00:23:25.499284",
+  "last_run": "2026-05-25T00:40:12.680029",
   "last_run_status": "ok",
   "last_run_rows_added": 0,
   "last_run_file": "Opportunities_05-23-2026_to_05-23-2026.csv",
   "run_history": [
+    {
+      "timestamp": "2026-05-25T00:40:12.680029",
+      "file_id": "1eAuUL82DmkRzSKDHRXheeNTtyxkRd-_Q",
+      "file_name": "Opportunities_05-23-2026_to_05-23-2026.csv",
+      "rows_added": 0,
+      "status": "ok"
+    },
     {
       "timestamp": "2026-05-25T00:23:25.499284",
       "file_id": "1eAuUL82DmkRzSKDHRXheeNTtyxkRd-_Q",
@@ -16,7 +23,7 @@
     }
   ],
   "last_reviewed_file": "Opportunities_05-23-2026_to_05-23-2026.csv",
-  "last_reviewed_time": "2026-05-25T00:23:25.499284",
+  "last_reviewed_time": "2026-05-25T00:40:12.680029",
   "last_appended_file": null,
   "last_appended_time": null,
   "last_appended_rows": 0,

@@ -82,15 +82,27 @@ def build_full_eda(df: pd.DataFrame) -> Dict:
 # NORMALIZATION: SET-ASIDE
 # -------------------------------------------------
 def _fallback_set_aside_patterns():
+    # Patterns use substring matching (case-insensitive).
+    # Short codes from TypeOfSetAside (e.g. "SBA", "SDVOSB", "SDVOSBC")
+    # are listed first so exact/prefix matches fire before longer descriptions.
     return {
-        "SDVOSB": ["sdvosb", "service-disabled", "service disabled"],
-        "WOSB": ["wosb", "women"],
-        "TOTAL SMALL BUSINESS SET ASIDE": ["total small business", "100% small business"],
-        "VETERAN OWNED SMALL BUSINESS (VOSB)": ["vosb", "veteran"],
+        "SDVOSB": [
+            "sdvosb",           # covers SDVOSB and SDVOSBC (substring)
+            "service-disabled",
+            "service disabled",
+        ],
+        "TOTAL SMALL BUSINESS SET ASIDE": [
+            "sba",              # short code "SBA" used in TypeOfSetAside
+            "total small business",
+            "100% small business",
+            "small business set",
+        ],
+        "VETERAN OWNED SMALL BUSINESS (VOSB)": ["vosb", "veteran-owned", "veteran owned"],
+        "WOSB": ["wosb", "women-owned", "women owned"],
         "SBA Certified Economically Disadvantaged WOSB (EDWOSB) Program Set-Aside (FAR 19.15)": [
             "edwosb", "economically disadvantaged"
         ],
-        "NO SET-ASIDE": ["no set aside", "none", "unrestricted"]
+        "NO SET-ASIDE": ["no set aside", "none", "unrestricted"],
     }
 
 
@@ -177,7 +189,9 @@ def build_final_output_table(df: pd.DataFrame, column_map: Dict, drop_no_set_asi
         tmp, "SolicitationNumber", "NoticeId", "NoticeID"
     )
     title = column_map.get("title") or pick_first_existing(tmp, "Title", "Description")
-    agency = column_map.get("agency") or pick_first_existing(tmp, "Agency", "Office")
+    agency = column_map.get("agency") or pick_first_existing(
+        tmp, "Agency", "FullParentPathName", "Office", "OfficeCity"
+    )
 
     sol_date = column_map.get("solicitation_date") or pick_first_existing(
         tmp, "PostedDate", "NoticeDate", "SolicitationDate"

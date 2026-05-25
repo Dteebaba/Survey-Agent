@@ -20,7 +20,6 @@ import pandas as pd
 from agent_state import get_state, is_file_seen, mark_file_seen, get_last_processed_file_id
 from data_engine import (
     build_final_output_table,
-    build_full_eda,
     force_date,
     normalize_opportunity_type_column,
     normalize_set_aside_column,
@@ -31,7 +30,6 @@ from google_connector import (
     get_existing_solicitation_numbers,
     list_drive_files,
 )
-from llm_agent import create_llm_plan
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -116,25 +114,23 @@ def process_file(file_id: str, file_name: str) -> tuple:
     df = _load_file_bytes(file_id, file_name)
     log.info(f"  Loaded {len(df)} rows, {len(df.columns)} columns")
 
-    eda = build_full_eda(df)
+    # Hardcoded column mapping — exact names from the source CSV.
+    # No LLM needed; this is reliable and fast.
+    COLUMN_MAP = {
+        "solicitation_number": "SolicitationNumber",
+        "title":               "Title",
+        "agency":              "FullParentPathName",
+        "solicitation_date":   "PostedDate",
+        "due_date":            "ResponseDeadLine",
+        "set_aside_column":    "TypeOfSetAside",
+        "opportunity_type_column": "Type",
+        "uilink":              "UiLink",
+    }
 
-    request = (
-        "Filter SDVOSB, SDVOSBC, and SBA solicitations due within the next 14 days. "
-        "Map all relevant columns including solicitation number, title, agency, "
-        "solicitation date, due date, opportunity type, set-aside, and UI link."
-    )
-    plan = create_llm_plan(eda, request)
-    column_map = plan.get("columns", {})
-    set_aside_patterns = plan.get("set_aside_patterns", {})
-    opp_type_patterns = plan.get("opportunity_type_patterns", {})
+    df = normalize_set_aside_column(df, "TypeOfSetAside", {}, new_col="Normalized_Set_Aside")
+    df = normalize_opportunity_type_column(df, "Type", {}, new_col="Normalized_Opportunity_Type")
 
-    set_aside_col = column_map.get("set_aside_column", "")
-    opp_type_col = column_map.get("opportunity_type_column", "")
-
-    df = normalize_set_aside_column(df, set_aside_col, set_aside_patterns, new_col="Normalized_Set_Aside")
-    df = normalize_opportunity_type_column(df, opp_type_col, opp_type_patterns, new_col="Normalized_Opportunity_Type")
-
-    final = build_final_output_table(df, column_map, drop_no_set_aside=False)
+    final = build_final_output_table(df, COLUMN_MAP, drop_no_set_aside=False)
 
     filtered = _apply_autonomous_filter(final)
     log.info(f"  After filter: {len(filtered)} qualifying rows")
