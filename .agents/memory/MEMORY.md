@@ -1,0 +1,1 @@
+- [Google Drive auth (dev + deployed)](google-drive-auth.md) — use Replit connectors proxy via Node.js SDK; direct token exchange always fails in deployment.

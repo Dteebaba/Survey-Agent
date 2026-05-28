@@ -1,138 +1,151 @@
 """
-Token Store - Gets Google OAuth tokens via Replit's Connection system.
-Replit stores Google connections as conn_google-drive_XXXXX IDs,
-not raw tokens. This file exchanges that connection for a live token.
+Token Store - Gets Google OAuth credentials via Replit's Connection system.
+
+Strategy (in order):
+  1. Replit connectors proxy (node refresh_token.js → .connector_tokens.json)
+     Works in dev AND deployed — the Node.js SDK auto-refreshes Paseto auth.
+  2. GOOGLE_ACCESS_TOKEN secret (manual override, may be expired)
+
+get_proxy_config() → returns {proxy_url, proxy_headers} for use in google_connector.py
+get_token()       → legacy bearer-token path (kept for compatibility)
 """
 
-import os
 import json
 import logging
-import requests
+import os
+import subprocess
+import time
 
 logger = logging.getLogger(__name__)
 
 TOKENS_FILE = ".connector_tokens.json"
+# Refresh proxy headers if older than this many seconds (tokens live ~1h)
+PROXY_TTL = 45 * 60  # 45 minutes
+
+
+# -------------------------------------------------
+# Public API
+# -------------------------------------------------
+
+def get_proxy_config() -> dict:
+    """
+    Return {proxy_url, proxy_headers} for Replit's connectors proxy.
+    Automatically refreshes via node refresh_token.js when stale.
+    """
+    cached = _load_proxy_cache()
+    if cached:
+        return cached
+
+    _refresh_via_node()
+    cached = _load_proxy_cache(allow_stale=True)
+    if cached:
+        return cached
+
+    raise RuntimeError(
+        "❌ Could not obtain Replit connectors proxy config.\n"
+        "Make sure node is available and refresh_token.js is present."
+    )
 
 
 def get_token(service: str) -> str:
     """
-    Get OAuth access token for Google Drive via Replit's connection system.
-
-    Your Replit Configurations show:
-      GOOGLE_DRIVE_CONN_ID = conn_google-drive_01KSDA57A08JSFMSAYVQBYB8ZT
-
-    We use that connection ID to get a live Bearer token.
+    Legacy: get a raw Bearer access token.
+    Falls back to GOOGLE_ACCESS_TOKEN secret if proxy approach not available.
     """
+    if service != "google-drive":
+        raise ValueError(f"Unknown service: {service}")
 
-    if service == "google-drive":
-        # Priority 1: Raw token directly in Secrets (manual override)
-        raw_token = os.getenv("GOOGLE_ACCESS_TOKEN")
-        if raw_token:
-            logger.info("✅ Using GOOGLE_ACCESS_TOKEN from Secrets")
-            return raw_token
+    # Try to get from cached token file (written by node refresh_token.js)
+    raw = _load_raw_access_token()
+    if raw:
+        return raw
 
-        # Priority 2: Replit Connection ID (your current setup)
-        conn_id = os.getenv("GOOGLE_DRIVE_CONN_ID")
-        if conn_id:
-            token = _exchange_replit_connection(conn_id)
-            if token:
-                return token
-
-        # Priority 3: Local cached token file
-        try:
-            with open(TOKENS_FILE, "r") as f:
-                tokens = json.load(f)
-                token = tokens.get("google_access_token")
-                if token:
-                    logger.info("✅ Using cached token from file")
-                    return token
-        except FileNotFoundError:
-            pass
-        except Exception as e:
-            logger.warning(f"Could not read token file: {e}")
-
-        raise ValueError(
-            "❌ No Google Drive token found.\n"
-            "Make sure GOOGLE_DRIVE_CONN_ID is set in Replit Configurations.\n"
-            f"Current value: {os.getenv('GOOGLE_DRIVE_CONN_ID', 'NOT SET')}"
+    # Manual override (may be expired)
+    raw_token = os.getenv("GOOGLE_ACCESS_TOKEN")
+    if raw_token:
+        logger.warning(
+            "⚠️  Using GOOGLE_ACCESS_TOKEN from Secrets — this may be stale."
         )
+        return raw_token
 
-    raise ValueError(f"Unknown service: {service}")
-
-
-def _exchange_replit_connection(conn_id: str) -> str:
-    """
-    Exchange a Replit Connection ID for a live Google OAuth access token.
-    Tries multiple Replit internal endpoints.
-    """
-
-    # Method 1: Replit token exchange endpoint
-    try:
-        resp = requests.post(
-            "https://replit.com/data/connections/token",
-            json={"connectionId": conn_id},
-            headers={
-                "X-Replit-User-Id": os.getenv("REPL_OWNER", ""),
-                "X-Replit-Repl-Id": os.getenv("REPL_ID", ""),
-                "Content-Type": "application/json",
-            },
-            timeout=15,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            token = data.get("access_token") or data.get("token")
-            if token:
-                logger.info("✅ Got token via Replit connection exchange")
-                _cache_token(token)
-                return token
-    except Exception as e:
-        logger.warning(f"Method 1 failed: {e}")
-
-    # Method 2: Replit connections proxy
-    try:
-        resp = requests.get(
-            f"https://connections.replit.com/token/{conn_id}",
-            headers={"Authorization": f"Bearer {os.getenv('REPLIT_TOKEN', '')}"},
-            timeout=15,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            token = data.get("access_token") or data.get("token")
-            if token:
-                logger.info("✅ Got token via Replit proxy")
-                _cache_token(token)
-                return token
-    except Exception as e:
-        logger.warning(f"Method 2 failed: {e}")
-
-    logger.error(
-        "❌ Could not exchange Replit connection ID for token.\n"
-        "Solution: Add GOOGLE_ACCESS_TOKEN manually to Replit Secrets.\n"
-        "Get it from: https://developers.google.com/oauthplayground"
+    raise ValueError(
+        "❌ No Google Drive token found.\n"
+        "Ensure the Google Drive integration is connected and "
+        "refresh_token.js can run."
     )
+
+
+# -------------------------------------------------
+# Internal helpers
+# -------------------------------------------------
+
+def _load_proxy_cache(allow_stale: bool = False) -> dict | None:
+    """Read proxy config from cache file; return None if missing/stale."""
+    try:
+        with open(TOKENS_FILE) as f:
+            data = json.load(f)
+        entry = data.get("google-drive", {})
+        proxy_url = entry.get("proxy_url")
+        proxy_headers = entry.get("proxy_headers")
+        written_at = entry.get("written_at", 0)
+
+        if not proxy_url or not proxy_headers:
+            return None
+
+        age = time.time() - written_at
+        if not allow_stale and age > PROXY_TTL:
+            logger.info(f"Proxy headers are {int(age)}s old — refreshing…")
+            return None
+
+        return {"proxy_url": proxy_url, "proxy_headers": proxy_headers}
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return None
+
+
+def _load_raw_access_token() -> str | None:
+    """Try to extract a raw access_token from the cache file (legacy)."""
+    try:
+        with open(TOKENS_FILE) as f:
+            data = json.load(f)
+        entry = data.get("google-drive", {})
+        if isinstance(entry, dict):
+            return entry.get("access_token")
+        if isinstance(entry, str):
+            return entry
+    except Exception:
+        pass
     return None
 
 
-def _cache_token(token: str):
-    """Cache token locally for reuse."""
+def _refresh_via_node() -> bool:
+    """Run node refresh_token.js to write fresh proxy headers."""
+    script = os.path.join(os.path.dirname(__file__), "refresh_token.js")
+    if not os.path.exists(script):
+        logger.error("refresh_token.js not found — cannot refresh proxy headers")
+        return False
     try:
-        tokens = {}
-        if os.path.exists(TOKENS_FILE):
-            with open(TOKENS_FILE, "r") as f:
-                tokens = json.load(f)
-        tokens["google_access_token"] = token
-        with open(TOKENS_FILE, "w") as f:
-            json.dump(tokens, f, indent=2)
+        result = subprocess.run(
+            ["node", script],
+            capture_output=True, text=True, timeout=30,
+            cwd=os.path.dirname(os.path.abspath(script)),
+        )
+        if result.returncode == 0:
+            logger.info(f"✅ Token refreshed: {result.stdout.strip()}")
+            return True
+        else:
+            logger.error(f"refresh_token.js failed: {result.stderr.strip()}")
+            return False
     except Exception as e:
-        logger.warning(f"Could not cache token: {e}")
+        logger.error(f"Could not run refresh_token.js: {e}")
+        return False
 
 
 def save_token(service: str, token: str) -> bool:
-    """Manually save a token."""
+    """Manually save a token (kept for UI compatibility)."""
     try:
         tokens = {}
         if os.path.exists(TOKENS_FILE):
-            with open(TOKENS_FILE, "r") as f:
+            with open(TOKENS_FILE) as f:
                 tokens = json.load(f)
         tokens[f"{service}_access_token"] = token
         with open(TOKENS_FILE, "w") as f:
@@ -148,7 +161,7 @@ def get_all_tokens() -> dict:
     """Get all stored tokens (for debugging)."""
     try:
         if os.path.exists(TOKENS_FILE):
-            with open(TOKENS_FILE, "r") as f:
+            with open(TOKENS_FILE) as f:
                 return json.load(f)
     except Exception as e:
         logger.warning(f"Error reading tokens: {e}")
@@ -156,7 +169,7 @@ def get_all_tokens() -> dict:
 
 
 def clear_tokens() -> bool:
-    """Clear all stored tokens."""
+    """Clear all stored tokens so next call forces a refresh."""
     try:
         if os.path.exists(TOKENS_FILE):
             os.remove(TOKENS_FILE)

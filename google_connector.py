@@ -5,11 +5,51 @@ we use a download-append-reupload pattern via the Drive API.
 Tokens are read from token_store.py (.connector_tokens.json).
 """
 import io
+import logging
 import os
 import requests
 import openpyxl
 from openpyxl.worksheet.datavalidation import DataValidation
-from token_store import get_token
+from token_store import clear_tokens, get_proxy_config
+
+log = logging.getLogger(__name__)
+
+# Google Drive API base (direct)
+_DRIVE_BASE = "https://www.googleapis.com"
+
+
+def _drive_request(method: str, path: str, *, params=None, data=None,
+                   headers_extra=None, timeout=30) -> requests.Response:
+    """
+    Make a Drive API request via Replit's connectors proxy.
+    Automatically refreshes proxy headers on 401 and retries once.
+    `path` should start with '/drive/v3/...' or '/upload/drive/v3/...'.
+    """
+    for attempt in range(2):
+        try:
+            cfg = get_proxy_config()
+        except Exception as e:
+            raise RuntimeError(f"Cannot get proxy config: {e}") from e
+
+        proxy_url = cfg["proxy_url"]
+        headers = dict(cfg["proxy_headers"])
+        if headers_extra:
+            headers.update(headers_extra)
+
+        url = proxy_url + path
+        resp = requests.request(
+            method, url,
+            params=params, data=data,
+            headers=headers, timeout=timeout,
+        )
+        if resp.status_code == 401 and attempt == 0:
+            log.warning("⚠️  401 from proxy — clearing cache and refreshing…")
+            clear_tokens()
+            continue
+        resp.raise_for_status()
+        return resp
+    resp.raise_for_status()
+    return resp
 
 SPREADSHEET_FILE_ID = os.getenv("GOOGLE_SHEETS_ID", "151jig9_3v-__dHfk7TksitJYONDMOLQV")
 SHEET_TAB_NAME = "Sheet2"
@@ -20,41 +60,40 @@ SHEET_TAB_NAME = "Sheet2"
 # -------------------------------------------------
 
 def list_drive_files(folder_id: str) -> list:
-    token = get_token("google-drive")
-    url = "https://www.googleapis.com/drive/v3/files"
-    params = {
-        "q": f"'{folder_id}' in parents and trashed=false",
-        "fields": "files(id,name,mimeType,modifiedTime,createdTime)",
-        "orderBy": "createdTime desc",
-        "pageSize": 200,
-    }
-    headers = {"Authorization": f"Bearer {token}"}
-    resp = requests.get(url, params=params, headers=headers, timeout=30)
-    resp.raise_for_status()
+    resp = _drive_request(
+        "GET",
+        "/drive/v3/files",
+        params={
+            "q": f"'{folder_id}' in parents and trashed=false",
+            "fields": "files(id,name,mimeType,modifiedTime,createdTime)",
+            "orderBy": "createdTime desc",
+            "pageSize": 200,
+        },
+        timeout=30,
+    )
     return resp.json().get("files", [])
 
 
 def download_drive_file(file_id: str) -> bytes:
-    token = get_token("google-drive")
-    url = f"https://www.googleapis.com/drive/v3/files/{file_id}"
-    params = {"alt": "media"}
-    headers = {"Authorization": f"Bearer {token}"}
-    resp = requests.get(url, params=params, headers=headers, timeout=60)
-    resp.raise_for_status()
+    resp = _drive_request(
+        "GET",
+        f"/drive/v3/files/{file_id}",
+        params={"alt": "media"},
+        timeout=60,
+    )
     return resp.content
 
 
 def upload_drive_file(file_id: str, content: bytes, mime_type: str) -> dict:
     """Update an existing file in Drive with new content."""
-    token = get_token("google-drive")
-    url = f"https://www.googleapis.com/upload/drive/v3/files/{file_id}"
-    params = {"uploadType": "media"}
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": mime_type,
-    }
-    resp = requests.patch(url, params=params, headers=headers, data=content, timeout=60)
-    resp.raise_for_status()
+    resp = _drive_request(
+        "PATCH",
+        f"/upload/drive/v3/files/{file_id}",
+        params={"uploadType": "media"},
+        data=content,
+        headers_extra={"Content-Type": mime_type},
+        timeout=60,
+    )
     return resp.json()
 
 

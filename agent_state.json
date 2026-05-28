@@ -1,7 +1,7 @@
 {
   "last_processed_file_id": "1ExBlGtegzXw7czdrnOvdNBoRPh4BQaYO",
   "last_processed_file_name": "Opportunities_05-26-2026_to_05-26-2026.csv",
-  "last_processed_date": "2026-05-28T15:35:50.349988",
+  "last_processed_date": "2026-05-28T16:04:03.927120",
   "files_processed": [
     {
       "id": "1ExBlGtegzXw7czdrnOvdNBoRPh4BQaYO",
@@ -9,10 +9,17 @@
       "rows_added": 1,
       "status": "ok",
       "timestamp": "2026-05-28T15:35:50.350010"
+    },
+    {
+      "id": "1ExBlGtegzXw7czdrnOvdNBoRPh4BQaYO",
+      "name": "Opportunities_05-26-2026_to_05-26-2026.csv",
+      "rows_added": 1,
+      "status": "ok",
+      "timestamp": "2026-05-28T16:04:03.927145"
     }
   ],
-  "last_run_time": "2026-05-28T15:35:50.350005",
-  "total_rows_added": 1,
-  "total_files_processed": 1,
+  "last_run_time": "2026-05-28T16:04:03.927138",
+  "total_rows_added": 2,
+  "total_files_processed": 2,
   "errors": []
 }
