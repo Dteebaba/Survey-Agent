@@ -67,17 +67,14 @@ def log_event(action: str, status: str, message: str = "", extra: dict | None = 
 # USER MANAGEMENT FUNCTIONS (ADMIN ONLY)
 # -------------------------------------------------
 def hash_password(password: str) -> str:
-    """Hash a password using SHA256"""
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 
 def verify_password(password: str, hashed: str) -> bool:
-    """Verify a password against its hash"""
     return hash_password(password) == hashed
 
 
 def load_users():
-    """Load users from JSON file"""
     try:
         with open('users.json', 'r') as f:
             return json.load(f)
@@ -89,16 +86,11 @@ def load_users():
 
 
 def save_users(users):
-    """Save users to JSON file and GitHub Gist"""
     try:
-        # Save locally first
         with open('users.json', 'w') as f:
             json.dump(users, f, indent=4)
-        
-        # Also save to GitHub Gist if configured
         from auth import save_users_to_gist
         save_users_to_gist(users)
-        
         return True
     except Exception as e:
         st.error(f"Error saving users: {e}")
@@ -106,24 +98,15 @@ def save_users(users):
 
 
 def add_user(username: str, password: str, role: str = "user"):
-    """Add a new user (admin only)"""
     if st.session_state.get("role") != "admin":
         return False, "Access denied. Only admins can add users."
-    
-    # Validate input
     if len(username.strip()) < 3:
         return False, "Username must be at least 3 characters long."
-    
     if len(password) < 6:
         return False, "Password must be at least 6 characters long."
-    
     users = load_users()
-    
-    # Check if user already exists
     if any(user['username'].lower() == username.lower() for user in users):
         return False, "Username already exists."
-    
-    # Hash password and create user
     hashed_pw = hash_password(password)
     new_user = {
         'username': username.strip(),
@@ -132,9 +115,7 @@ def add_user(username: str, password: str, role: str = "user"):
         'created_at': datetime.datetime.now().isoformat(),
         'created_by': st.session_state.get("username", "unknown")
     }
-    
     users.append(new_user)
-    
     if save_users(users):
         log_event("add_user", "success", f"Added user: {username}")
         return True, f"User '{username}' added successfully!"
@@ -143,23 +124,15 @@ def add_user(username: str, password: str, role: str = "user"):
 
 
 def delete_user(username: str):
-    """Delete a user (admin only)"""
     if st.session_state.get("role") != "admin":
         return False, "Access denied. Only admins can delete users."
-    
     users = load_users()
-    
-    # Prevent admin from deleting themselves
     if username == st.session_state.get("username"):
         return False, "You cannot delete your own account."
-    
-    # Filter out the user to delete
     original_count = len(users)
     users = [user for user in users if user['username'] != username]
-    
     if len(users) == original_count:
         return False, f"User '{username}' not found."
-    
     if save_users(users):
         log_event("delete_user", "success", f"Deleted user: {username}")
         return True, f"User '{username}' deleted successfully!"
@@ -168,26 +141,21 @@ def delete_user(username: str):
 
 
 def update_user_role(username: str, new_role: str):
-    """Update a user's role (admin only)"""
     if st.session_state.get("role") != "admin":
         return False, "Access denied. Only admins can update user roles."
-    
     users = load_users()
-    
     for user in users:
         if user['username'] == username:
             old_role = user['role']
             user['role'] = new_role
             user['updated_at'] = datetime.datetime.now().isoformat()
             user['updated_by'] = st.session_state.get("username", "unknown")
-            
             if save_users(users):
-                log_event("update_user_role", "success", 
+                log_event("update_user_role", "success",
                          f"Updated {username} role from {old_role} to {new_role}")
                 return True, f"User '{username}' role updated to '{new_role}'!"
             else:
                 return False, "Failed to save user data."
-    
     return False, f"User '{username}' not found."
 
 
@@ -196,7 +164,6 @@ def update_user_role(username: str, new_role: str):
 # -------------------------------------------------
 def render_external_tools():
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-
     st.markdown(
         """
         <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">
@@ -208,7 +175,6 @@ def render_external_tools():
         """,
         unsafe_allow_html=True,
     )
-
     st.markdown(
         """
         <style>
@@ -225,78 +191,50 @@ def render_external_tools():
             text-decoration: none;
             font-weight: 500;
         }
-        .ext-btn:hover {
-            background: #E5E7EB;
-        }
+        .ext-btn:hover { background: #E5E7EB; }
         </style>
         """,
         unsafe_allow_html=True,
     )
-
     st.markdown(
         """
-        <a class="ext-btn"
-           href="https://chatgpt.com/g/g-67df3383b37c81919e4fd38381e15a3b-sources-sought-analyzer"
-           target="_blank">Sources Sought Analyzer</a>
-
-        <a class="ext-btn"
-           href="https://chatgpt.com/g/g-68c8e4688328819182428ed714ade74a-breakdown-statement-of-works"
-           target="_blank">Breakdown Statement of Work</a>
-
+        <a class="ext-btn" href="https://chatgpt.com/g/g-67df3383b37c81919e4fd38381e15a3b-sources-sought-analyzer" target="_blank">Sources Sought Analyzer</a>
+        <a class="ext-btn" href="https://chatgpt.com/g/g-68c8e4688328819182428ed714ade74a-breakdown-statement-of-works" target="_blank">Breakdown Statement of Work</a>
         <a class="ext-btn" href="https://chatgpt.com" target="_blank">ChatGPT</a>
-
         <a class="ext-btn" href="https://chatgpt.com/g/g-6926512d2a5c8191b7260d3fe8d2b5d9-sam-excel-solicitation-analyzer" target="_blank">Sam Excel Solicitation Analyzer</a>
-
-        <a class="ext-btn"
-           href="https://www.perplexity.ai/"
-           target="_blank">Perplexity AI</a>
-
+        <a class="ext-btn" href="https://www.perplexity.ai/" target="_blank">Perplexity AI</a>
         <a class="ext-btn" href="https://www.google.com" target="_blank">Google Search</a>
         """,
         unsafe_allow_html=True,
     )
-
     st.markdown("</div>", unsafe_allow_html=True)
 
 
 # -------------------------------------------------
-# TRAINING PAGE (VISIBLE TO ALL USERS)
+# TRAINING PAGE
 # -------------------------------------------------
 def show_training():
     st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
-
-    # Header
     st.markdown(
         """
         <div class='app-card'>
             <div class='app-title'>Training Videos</div>
-            <div class='app-subtitle'>
-                Learn how to use SAM.gov, ChatGPT, and federal opportunity tools.
-            </div>
+            <div class='app-subtitle'>Learn how to use SAM.gov, ChatGPT, and federal opportunity tools.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-
     if st.button("Back to home"):
         goto("home")
-
-    # Training content
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-
     st.markdown("### 🎥 How to use Sam.gov and ChatGPT", unsafe_allow_html=True)
     st.video("https://www.youtube.com/watch?v=Nyvwo7es3wo")
-
     st.markdown(
         "<p style='color:#6B7280; font-size:0.9rem;'>More training videos will be added soon…</p>",
         unsafe_allow_html=True,
     )
-
     st.markdown("</div>", unsafe_allow_html=True)
-
-    # External tools also shown here
     render_external_tools()
-
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -305,83 +243,57 @@ def show_training():
 # -------------------------------------------------
 def show_home():
     st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
-
-    # Header
     st.markdown(
         """
         <div class='app-card'>
             <div class='app-title'>Survey Agent</div>
-            <div class='app-subtitle'>
-                AI-powered assistant for managing federal opportunity spreadsheets.
-            </div>
+            <div class='app-subtitle'>AI-powered assistant for managing federal opportunity spreadsheets.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-
-    # Feature Grid
     st.markdown("<div class='feature-grid'>", unsafe_allow_html=True)
 
-    # Document Assistant Card
     st.markdown(
-        """
-        <div class='feature-card'>
-            <div class='feature-title'>Document Assistant</div>
-            <div class='feature-desc'>Upload data, normalize it, and apply AI filters.</div>
-        """,
+        """<div class='feature-card'><div class='feature-title'>Document Assistant</div>
+        <div class='feature-desc'>Upload data, normalize it, and apply AI filters.</div>""",
         unsafe_allow_html=True,
     )
     if st.button("Open Document Assistant"):
         goto("survey")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Training Card
     st.markdown(
-        """
-        <div class='feature-card'>
-            <div class='feature-title'>Training</div>
-            <div class='feature-desc'>Watch tutorials and learn how to use SAM.gov & AI tools.</div>
-        """,
+        """<div class='feature-card'><div class='feature-title'>Training</div>
+        <div class='feature-desc'>Watch tutorials and learn how to use SAM.gov & AI tools.</div>""",
         unsafe_allow_html=True,
     )
     if st.button("View Training"):
         goto("training")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Tools card
     st.markdown(
-        """
-        <div class='feature-card'>
-            <div class='feature-title'>AI Tools</div>
-            <div class='feature-desc'>Use specialized AI tools to analyze federal opportunities.</div>
-        """,
+        """<div class='feature-card'><div class='feature-title'>AI Tools</div>
+        <div class='feature-desc'>Use specialized AI tools to analyze federal opportunities.</div>""",
         unsafe_allow_html=True,
     )
     if st.button("Open Tools"):
         goto("tools")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Autonomous Agent Card
     st.markdown(
-        """
-        <div class='feature-card'>
-            <div class='feature-title'>Autonomous Agent</div>
-            <div class='feature-desc'>Auto-scan Drive every 5 hrs, filter SDVOSB/SBA opps due in 14 days, append to master sheet.</div>
-        """,
+        """<div class='feature-card'><div class='feature-title'>Autonomous Agent</div>
+        <div class='feature-desc'>Auto-scan Drive for the latest file, filter SDVOSB/SBA opps due in 14 days, append to master sheet.</div>""",
         unsafe_allow_html=True,
     )
     if st.button("Open Autonomous Agent"):
         goto("autonomous")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Admin Console (Admins Only)
     if st.session_state.get("role") == "admin":
         st.markdown(
-            """
-            <div class='feature-card'>
-                <div class='feature-title'>Admin Console</div>
-                <div class='feature-desc'>Manage users and view system activity.</div>
-            """,
+            """<div class='feature-card'><div class='feature-title'>Admin Console</div>
+            <div class='feature-desc'>Manage users and view system activity.</div>""",
             unsafe_allow_html=True,
         )
         if st.button("Open Admin Console"):
@@ -393,224 +305,169 @@ def show_home():
 
 
 # -------------------------------------------------
-# AUTONOMOUS AGENT PAGE
+# AUTONOMOUS AGENT PAGE  ← FIXED
 # -------------------------------------------------
 def show_autonomous_agent():
     import os
     from datetime import datetime, timedelta
-    from agent_state import get_state
+    from agent_state import get_summary, reset_state
 
     st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
-
     st.markdown(
         """
         <div class='app-card'>
             <div class='app-title'>Autonomous Agent</div>
             <div class='app-subtitle'>
-                Automatically scans Google Drive every day at <strong>10 PM ET</strong> for new opportunity files,
+                Checks Google Drive for the <strong>latest</strong> opportunity file,
                 filters SDVOSB / SDVOSBC / SBA solicitations due within 14 days,
-                and appends results to the master Excel sheet.
+                and appends new rows to the master Excel sheet.
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    if st.button("Back to home"):
+    if st.button("← Back to home"):
         goto("home")
 
-    # --- Status card ---
+    # ── Status panel ─────────────────────────────────────────
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    st.markdown("### Pipeline Status")
+    st.markdown("### 📊 Agent Status")
 
-    state = get_state()
-    last_run = state.get("last_run")
-    last_status = state.get("last_run_status")
-    last_rows = state.get("last_run_rows_added", 0)
-    seen_count = len(state.get("seen_file_ids", []))
+    s = get_summary()
 
-    # Last reviewed
-    last_reviewed_file = state.get("last_reviewed_file") or "—"
-    last_reviewed_time = state.get("last_reviewed_time")
-    # Last appended
-    last_appended_file = state.get("last_appended_file") or "—"
-    last_appended_time = state.get("last_appended_time")
-    last_appended_rows = state.get("last_appended_rows", 0)
+    def _fmt(val):
+        return val if val and val != "None" else "—"
 
-    def _fmt_time(iso):
-        if not iso:
-            return "Never"
-        try:
-            return datetime.fromisoformat(iso).strftime("%b %d, %Y  %H:%M UTC")
-        except Exception:
-            return iso
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Last File Processed", _fmt(s["last_file_processed"]))
+    c2.metric("Last Run",            _fmt(s["last_run_time"]))
+    c3.metric("Files Processed",     s["total_files_processed"])
+    c4.metric("Total Rows Added",    s["total_rows_added"])
 
-    # Two prominent info boxes
-    box1, box2 = st.columns(2)
-    with box1:
-        st.markdown(
-            f"""
-            <div style='background:#f0f4ff;border-left:4px solid #4a6cf7;padding:14px 18px;border-radius:8px;'>
-                <div style='font-size:0.78rem;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.05em;'>Last Sheet Reviewed</div>
-                <div style='font-size:1.05rem;font-weight:700;color:#1a1a2e;margin:4px 0 2px;'>{last_reviewed_file}</div>
-                <div style='font-size:0.82rem;color:#555;'>{_fmt_time(last_reviewed_time)}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with box2:
-        st.markdown(
-            f"""
-            <div style='background:#f0fff4;border-left:4px solid #22c55e;padding:14px 18px;border-radius:8px;'>
-                <div style='font-size:0.78rem;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.05em;'>Last Appended to Sheet</div>
-                <div style='font-size:1.05rem;font-weight:700;color:#1a1a2e;margin:4px 0 2px;'>{last_appended_file}</div>
-                <div style='font-size:0.82rem;color:#555;'>{_fmt_time(last_appended_time)}{"  •  " + str(last_appended_rows) + " rows added" if last_appended_rows else ""}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    # Next scheduled run countdown
+    ET_OFFSET  = timedelta(hours=-4)
+    now_et     = datetime.utcnow() + ET_OFFSET
+    target_et  = now_et.replace(hour=22, minute=0, second=0, microsecond=0)
+    if now_et >= target_et:
+        target_et += timedelta(days=1)
+    mins_left  = int((target_et - now_et).total_seconds() / 60)
+    h, m       = divmod(mins_left, 60)
+    st.info(f"⏰ Next scheduled run: **10 PM ET** (in {h}h {m}m)")
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Files Processed", seen_count)
-    with col2:
-        st.metric("Last Run Rows Added", last_rows)
-    with col3:
-        _et_offset = timedelta(hours=-4)
-        _now_et = datetime.utcnow() + _et_offset
-        _target_et = _now_et.replace(hour=22, minute=0, second=0, microsecond=0)
-        if _now_et >= _target_et:
-            _next_et = _target_et + timedelta(days=1)
-        else:
-            _next_et = _target_et
-        _mins_to = int((_next_et - _now_et).total_seconds() / 60)
-        _h, _m = divmod(_mins_to, 60)
-        st.metric("Next Scheduled Run", f"10 PM ET (in {_h}h {_m}m)")
-
-    if not last_reviewed_time:
-        st.info("No runs yet. Click **▶ Run Latest Update** to trigger the first scan.")
+    if s["recent_errors"]:
+        st.markdown("#### ⚠️ Recent Errors")
+        for err in s["recent_errors"]:
+            st.error(f"[{err['timestamp']}] {err['message']}")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- Manual trigger ---
+    # ── Action buttons ────────────────────────────────────────
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    st.markdown("### Run Update")
-    st.write("Scan Google Drive for the latest opportunity files and append any new qualifying rows to the master sheet.")
+    st.markdown("### ▶ Run Update")
 
     col_btn, col_reset, col_dv = st.columns([3, 2, 2])
+
     with col_btn:
         run_now = st.button("▶ Run Latest Update", type="primary", use_container_width=True)
     with col_reset:
-        reset_seen = st.button("Reset Seen Files", type="secondary", use_container_width=True,
-                               help="Mark all files as unprocessed so everything is reprocessed on the next run")
+        reset_btn = st.button(
+            "🔄 Reset Seen Files", type="secondary", use_container_width=True,
+            help="Clear processed-file memory so the latest file is re-processed next run"
+        )
     with col_dv:
-        apply_dv = st.button("Apply Dropdown to Sheet", type="secondary", use_container_width=True,
-                             help="Re-apply the Progress Report dropdown validation to Solicitations.xlsx")
+        apply_dv = st.button(
+            "Apply Dropdown to Sheet", type="secondary", use_container_width=True,
+            help="Re-apply the Progress Report dropdown validation to master sheet"
+        )
 
-    if reset_seen:
-        from pathlib import Path
-        import json
-        state_file = Path("agent_state.json")
-        if state_file.exists():
-            s = json.loads(state_file.read_text())
-            s["seen_file_ids"] = []
-            state_file.write_text(json.dumps(s, indent=2))
-        st.success("Seen file list cleared. All files will be reprocessed on the next run.")
-        st.rerun()
+    # Reset
+    if reset_btn:
+        reset_state()
+        st.success("✅ Seen file memory cleared. Next run will process the latest file.")
 
+    # Apply dropdown
     if apply_dv:
-        with st.spinner("Applying dropdown to Solicitations.xlsx..."):
+        with st.spinner("Applying dropdown to master sheet..."):
             try:
                 from google_connector import apply_progress_dropdown
                 apply_progress_dropdown()
-                st.success("Done! Column I (Progress Report) now has a dropdown in your Excel file.")
+                st.success("✅ Progress Report dropdown applied to master sheet.")
             except Exception as e:
                 st.error(f"Failed to apply dropdown: {e}")
 
+    # Run pipeline
     if run_now:
         from autonomous_agent import run_pipeline
-        progress_area = st.empty()
-        result_area = st.empty()
+
+        progress_box = st.empty()
+        result_box   = st.empty()
 
         def update_progress(msg):
-            progress_area.info(f"⏳ {msg}")
+            progress_box.info(f"⏳ {msg}")
 
         with st.spinner("Running pipeline..."):
             try:
                 summary = run_pipeline(progress_callback=update_progress)
-                progress_area.empty()
+                progress_box.empty()
+
                 if summary["errors"]:
-                    result_area.error(
-                        f"Pipeline error:\n" + "\n".join(summary["errors"])
-                    )
+                    result_box.error("Pipeline error:\n" + "\n".join(summary["errors"]))
+
                 elif summary["files_processed"] == 0:
-                    result_area.info(f"ℹ️ {summary.get('message', 'No new updates yet.')}")
+                    result_box.info(f"ℹ️ {summary.get('message', 'No new updates yet.')}")
+
                 else:
-                    result_area.success(
-                        f"✅ {summary['processed_files'][0]['name']} — "
-                        f"{summary['total_rows_added']} rows appended to the sheet."
+                    fname = summary["processed_files"][0]["name"]
+                    rows  = summary["total_rows_added"]
+                    result_box.success(
+                        f"✅ **{fname}** — {rows} rows appended to the master sheet."
                     )
-                log_event("autonomous_pipeline", "success" if not summary["errors"] else "error",
-                          f"files={summary['files_checked']}, rows={summary['total_rows_added']}")
-                st.rerun()
+
+                log_event(
+                    "autonomous_pipeline",
+                    "success" if not summary["errors"] else "error",
+                    f"files={summary['files_checked']}, rows={summary['total_rows_added']}"
+                )
+
             except Exception as e:
-                progress_area.empty()
-                result_area.error(f"Pipeline failed: {e}")
+                progress_box.empty()
+                result_box.error(f"Pipeline failed: {e}")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- Run history ---
-    history = state.get("run_history", [])
-    if history:
-        st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-        st.markdown("### Run History (last 50)")
-        import pandas as pd
-        df_hist = pd.DataFrame(history)
-        if "timestamp" in df_hist.columns:
-            df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"]).dt.strftime("%Y-%m-%d %H:%M UTC")
-        st.dataframe(df_hist, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # --- Config info ---
+    # ── Config info ───────────────────────────────────────────
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    st.markdown("### Configuration")
+    st.markdown("### ⚙️ Configuration")
     folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "1bSGpFbEW09jAq6pdn1i_WO8RUAa3DPUJ")
-    sheet_id = os.getenv("GOOGLE_SHEETS_ID", "151jig9_3v-__dHfk7TksitJYONDMOLQV")
+    sheet_id  = os.getenv("GOOGLE_SHEETS_ID",       "151jig9_3v-__dHfk7TksitJYONDMOLQV")
     st.markdown(
         f"- **Drive Folder:** [Open in Drive](https://drive.google.com/drive/folders/{folder_id})\n"
         f"- **Output Sheet:** [Open in Sheets](https://docs.google.com/spreadsheets/d/{sheet_id})\n"
         f"- **Filter:** SDVOSB / SDVOSBC / SBA solicitations due within the next **14 days**\n"
-        f"- **Schedule:** Every **5 hours** (background scheduler runs while app is open)"
+        f"- **Auto Schedule:** Daily at **10 PM ET**"
     )
     st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
 # -------------------------------------------------
-# TOOLS PAGE (JUST LINK WRAPPER)
+# TOOLS PAGE
 # -------------------------------------------------
 def show_tools():
     st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
-
     st.markdown(
         """
         <div class='app-card'>
             <div class='app-title'>External Tools</div>
-            <div class='app-subtitle'>
-                Use these tools to support your analysis workflows.
-            </div>
+            <div class='app-subtitle'>Use these tools to support your analysis workflows.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-
     if st.button("Back to home"):
         goto("home")
-
     render_external_tools()
-
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -619,23 +476,18 @@ def show_tools():
 # -------------------------------------------------
 def show_survey():
     st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
-
     st.markdown(
         """
         <div class='app-card'>
             <div class='app-title'>Document Assistant</div>
-            <div class='app-subtitle'>
-                Upload, normalize, filter, and export federal opportunity datasets.
-            </div>
+            <div class='app-subtitle'>Upload, normalize, filter, and export federal opportunity datasets.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-
     if st.button("Back to home"):
         goto("home")
 
-    # Upload
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
     uploaded_file = st.file_uploader("Upload Excel or CSV file", type=["csv", "xlsx", "xls"])
     st.markdown("</div>", unsafe_allow_html=True)
@@ -646,8 +498,6 @@ def show_survey():
         return
 
     dataset_name = uploaded_file.name
-
-    # Load dataset
     try:
         df = load_dataset(uploaded_file)
     except Exception as e:
@@ -655,22 +505,17 @@ def show_survey():
         render_external_tools()
         return
 
-    # Dataset info
     st.markdown(
         f"<p class='data-meta'>Loaded <b>{dataset_name}</b> — Rows: {len(df)} | Columns: {len(df.columns)}</p>",
         unsafe_allow_html=True,
     )
-
     with st.expander("Preview first 20 rows"):
         st.dataframe(df.head(20))
 
-    # Build EDA
     eda = build_full_eda(df)
 
-    # Manual Dataset Summary
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
     st.markdown("#### Dataset Understanding (Click to Generate)", unsafe_allow_html=True)
-
     if st.button("Generate Dataset Summary"):
         with st.spinner("AI analyzing your dataset..."):
             try:
@@ -678,10 +523,8 @@ def show_survey():
             except Exception as e:
                 summary = f"(AI failed: {e})"
         st.write(summary)
-
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # User instruction
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
     st.markdown("#### What do you want to extract or filter?")
     user_request = st.text_area(
@@ -702,7 +545,6 @@ def show_survey():
         return
 
     with st.status("Processing your request...", expanded=True) as status:
-        # Step 1: LLM Plan
         status.update(label="Interpreting your instruction...", state="running")
         try:
             plan = create_llm_plan(eda, user_request)
@@ -710,18 +552,16 @@ def show_survey():
             st.error(f"AI plan failed: {e}")
             return
 
-        columns = plan.get("columns", {})
+        columns     = plan.get("columns", {})
         sa_patterns = plan.get("set_aside_patterns", {})
-        opp_patterns = plan.get("opportunity_type_patterns", {})
-        filters = plan.get("filters", [])
+        opp_patterns= plan.get("opportunity_type_patterns", {})
+        filters     = plan.get("filters", [])
 
-        # Step 2: Normalize
         status.update(label="Normalizing...", state="running")
         df2 = df.copy()
         df2 = normalize_set_aside_column(df2, columns.get("set_aside_column") or "TypeOfSetAsideDescription", sa_patterns)
         df2 = normalize_opportunity_type_column(df2, columns.get("opportunity_type_column") or "Type", opp_patterns)
 
-        # Step 3: Build final table
         status.update(label="Building final output...", state="running")
         try:
             final_df = build_final_output_table(df2, columns)
@@ -732,44 +572,30 @@ def show_survey():
 
         status.update(label="Complete", state="complete")
 
-    # Output
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
     st.markdown("#### Filtered Results", unsafe_allow_html=True)
     st.write(f"Rows returned: **{len(final_df)}**")
 
     if len(final_df) > 0:
         st.dataframe(final_df.head(50))
-
         excel_bytes = to_excel_bytes(final_df)
-        csv_bytes = to_csv_bytes(final_df)
-
+        csv_bytes   = to_csv_bytes(final_df)
         c1, c2 = st.columns(2)
         with c1:
-            st.download_button(
-                "Download Excel",
-                excel_bytes,
-                "Filtered_Results.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+            st.download_button("Download Excel", excel_bytes, "Filtered_Results.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         with c2:
-            st.download_button(
-                "Download CSV",
-                csv_bytes,
-                "Filtered_Results.csv",
-                mime="text/csv",
-            )
+            st.download_button("Download CSV", csv_bytes, "Filtered_Results.csv", mime="text/csv")
     else:
         st.warning("No rows matched your filter criteria.")
 
     st.markdown("</div>", unsafe_allow_html=True)
-
     render_external_tools()
-
     st.markdown("</div>", unsafe_allow_html=True)
 
 
 # -------------------------------------------------
-# ADMIN PAGE (ENHANCED WITH USER MANAGEMENT)
+# ADMIN PAGE
 # -------------------------------------------------
 def show_admin():
     st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
@@ -790,68 +616,49 @@ def show_admin():
         """,
         unsafe_allow_html=True,
     )
-
     if st.button("Back to home"):
         goto("home")
 
-    # Tabs for different admin functions
     tab1, tab2 = st.tabs(["👥 User Management", "📊 Activity Logs"])
 
     with tab1:
         st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-        
-        # Add New User Section
         st.markdown("### Add New User")
         with st.form("add_user_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
-            
             with col1:
                 new_username = st.text_input("Username", placeholder="Enter username")
                 new_password = st.text_input("Password", type="password", placeholder="Enter password")
-            
             with col2:
-                new_role = st.selectbox("Role", ["user", "admin"], index=0)
-                st.write("")  # Spacing
-                submit_add = st.form_submit_button("Add User", use_container_width=True)
-            
+                new_role     = st.selectbox("Role", ["user", "admin"], index=0)
+                st.write("")
+                submit_add   = st.form_submit_button("Add User", use_container_width=True)
             if submit_add:
                 if new_username and new_password:
                     success, message = add_user(new_username, new_password, new_role)
                     if success:
                         st.success(message)
-                        # Don't rerun - just show success message
                     else:
                         st.error(message)
                 else:
                     st.warning("Please fill in both username and password.")
-
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # Current Users Section
         st.markdown("<div class='app-card'>", unsafe_allow_html=True)
         st.markdown("### Current Users")
-        
         users = load_users()
-        
         if not users:
             st.info("No users found. Add the first user above.")
         else:
-            # Display users in a nice format
             for i, user in enumerate(users):
                 col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
-                
                 with col1:
                     st.write(f"**{user['username']}**")
-                
                 with col2:
                     current_role = user['role']
-                    new_role = st.selectbox(
-                        "Role", 
-                        ["user", "admin"], 
-                        index=0 if current_role == "user" else 1,
-                        key=f"role_{i}"
-                    )
-                    
+                    new_role = st.selectbox("Role", ["user", "admin"],
+                                            index=0 if current_role == "user" else 1,
+                                            key=f"role_{i}")
                     if new_role != current_role:
                         if st.button("Update Role", key=f"update_{i}"):
                             success, message = update_user_role(user['username'], new_role)
@@ -860,7 +667,6 @@ def show_admin():
                                 st.rerun()
                             else:
                                 st.error(message)
-                
                 with col3:
                     created_date = user.get('created_at', 'Unknown')
                     if created_date != 'Unknown':
@@ -869,9 +675,7 @@ def show_admin():
                         except:
                             created_date = 'Unknown'
                     st.write(f"Created: {created_date}")
-                
                 with col4:
-                    # Prevent admin from deleting themselves
                     if user['username'] != st.session_state.get("username"):
                         if st.button("Delete", key=f"delete_{i}", type="secondary"):
                             success, message = delete_user(user['username'])
@@ -882,88 +686,40 @@ def show_admin():
                                 st.error(message)
                     else:
                         st.write("*(Current User)*")
-                
                 st.divider()
-
         st.markdown("</div>", unsafe_allow_html=True)
 
     with tab2:
-        # Activity Logs Section (existing functionality)
         logs = st.session_state.activity_log
-
         st.markdown("<div class='app-card'>", unsafe_allow_html=True)
         st.markdown("### Activity Log")
-
         if not logs:
             st.info("No activity logged yet.")
         else:
-            # Convert logs to a more readable format
             import pandas as pd
             df_logs = pd.DataFrame(logs)
-            
-            # Format timestamp
             if 'timestamp' in df_logs.columns:
                 df_logs['timestamp'] = pd.to_datetime(df_logs['timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
-            
             st.dataframe(df_logs, use_container_width=True)
-            
-            # Option to clear logs
             if st.button("Clear All Logs", type="secondary"):
                 st.session_state.activity_log = []
                 st.success("Activity logs cleared.")
                 st.rerun()
-
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 
 # -------------------------------------------------
-# BACKGROUND SCHEDULER (runs daily at 10 PM ET)
+# BACKGROUND SCHEDULER
 # -------------------------------------------------
-def _maybe_run_pipeline_background():
-    """Fire the pipeline once per day at 10 PM ET (UTC-4, EDT)."""
-    from datetime import datetime, timedelta, timezone
-    from agent_state import get_last_run_time
-    import logging
-    import threading
-
-    ET_OFFSET = timedelta(hours=-4)
-    now_utc = datetime.utcnow()
-    now_et = now_utc + ET_OFFSET
-
-    # Today's 10 PM ET expressed in UTC
-    target_et = now_et.replace(hour=22, minute=0, second=0, microsecond=0)
-    target_utc = target_et - ET_OFFSET
-
-    # Only fire if we are at or past 10 PM ET today
-    if now_et.hour < 22:
-        return
-
-    # Only fire once per day — skip if last run was already after today's 10 PM target
-    last = get_last_run_time()
-    if last is not None and last >= target_utc:
-        return
-
-    def _run():
-        try:
-            from autonomous_agent import run_pipeline
-            run_pipeline()
-        except Exception as e:
-            logging.getLogger(__name__).error(f"Background pipeline error: {e}")
-
-    t = threading.Thread(target=_run, daemon=True, name="auto-pipeline")
-    if not any(th.name == "auto-pipeline" and th.is_alive()
-               for th in threading.enumerate()):
-        t.start()
-
-# AUTONOMOUS SCHEDULER SETUP
 try:
     from scheduler import start_scheduler
     start_scheduler()
     print("✅ Autonomous scheduler initialized - runs daily at 10 PM ET")
 except Exception as e:
     print(f"⚠️  Scheduler initialization failed (manual runs will still work): {e}")
+
 
 # -------------------------------------------------
 # ROUTER
