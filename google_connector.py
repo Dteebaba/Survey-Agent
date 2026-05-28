@@ -101,32 +101,51 @@ def upload_drive_file(file_id: str, content: bytes, mime_type: str) -> dict:
 # xlsx append helpers (Drive-based, works with Office files)
 # -------------------------------------------------
 
-def get_existing_solicitation_numbers() -> set:
-    """Download the master xlsx and return existing solicitation numbers."""
+def get_existing_dedup_keys() -> tuple[set, set]:
+    """
+    Download the master xlsx and return two dedup sets:
+      (solicitation_numbers, uilinks)
+    Both are used for deduplication — UiLink is the fallback when
+    Solicitation Number is blank in the source data.
+    """
     try:
         raw = download_drive_file(SPREADSHEET_FILE_ID)
         wb = openpyxl.load_workbook(io.BytesIO(raw))
         ws = wb[SHEET_TAB_NAME]
 
-        # Find "Solicitation Number" column index
         headers = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
-        sol_col = None
-        for i, h in enumerate(headers):
-            if h and str(h).strip().lower() == "solicitation number":
-                sol_col = i + 1
-                break
 
-        if sol_col is None:
-            return set()
+        def _find_col(name: str) -> int | None:
+            for i, h in enumerate(headers):
+                if h and str(h).strip().lower() == name.lower():
+                    return i + 1
+            return None
 
-        nums = set()
+        sol_col = _find_col("Solicitation Number")
+        link_col = _find_col("UiLink")
+
+        sol_nums: set = set()
+        uilinks: set = set()
+
         for row in range(2, ws.max_row + 1):
-            val = ws.cell(row, sol_col).value
-            if val:
-                nums.add(str(val).strip())
-        return nums
+            if sol_col:
+                v = ws.cell(row, sol_col).value
+                if v:
+                    sol_nums.add(str(v).strip())
+            if link_col:
+                v = ws.cell(row, link_col).value
+                if v:
+                    uilinks.add(str(v).strip())
+
+        return sol_nums, uilinks
     except Exception:
-        return set()
+        return set(), set()
+
+
+def get_existing_solicitation_numbers() -> set:
+    """Legacy wrapper — returns solicitation numbers only."""
+    sol_nums, _ = get_existing_dedup_keys()
+    return sol_nums
 
 
 def append_rows_to_xlsx(rows: list, output_columns: list) -> int:

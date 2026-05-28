@@ -27,7 +27,7 @@ from data_engine import (
 from google_connector import (
     append_rows_to_xlsx,
     download_drive_file,
-    get_existing_solicitation_numbers,
+    get_existing_dedup_keys,
     list_drive_files,
 )
 from llm_agent import classify_set_aside_descriptions
@@ -202,16 +202,23 @@ def process_file(file_id: str, file_name: str) -> tuple:
         return 0, "No qualifying rows found"
 
     # Deduplicate against existing sheet
-    existing_sol_nums = get_existing_solicitation_numbers()
+    # Primary key: Solicitation Number; fallback: UiLink (handles blank sol numbers)
+    existing_sol_nums, existing_uilinks = get_existing_dedup_keys()
 
-    if "Solicitation Number" in filtered.columns:
-        before = len(filtered)
-        filtered = filtered[
-            ~filtered["Solicitation Number"].astype(str).str.strip().isin(existing_sol_nums)
-        ]
-        dupes = before - len(filtered)
-        if dupes:
-            log.info(f"  Skipped {dupes} already-seen solicitations")
+    before = len(filtered)
+    def _is_dupe(row):
+        sol = str(row.get("Solicitation Number", "")).strip()
+        link = str(row.get("UiLink", "")).strip()
+        if sol and sol != "nan":
+            return sol in existing_sol_nums
+        if link and link != "nan":
+            return link in existing_uilinks
+        return False  # no key — let it through (edge case)
+
+    filtered = filtered[~filtered.apply(_is_dupe, axis=1)]
+    dupes = before - len(filtered)
+    if dupes:
+        log.info(f"  Skipped {dupes} already-seen solicitations")
 
     if filtered.empty:
         return 0, "All rows already in sheet (no new data)"
