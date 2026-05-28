@@ -957,9 +957,13 @@ def _maybe_run_pipeline_background():
                for th in threading.enumerate()):
         t.start()
 
-
-_maybe_run_pipeline_background()
-
+# AUTONOMOUS SCHEDULER SETUP
+try:
+    from scheduler import start_scheduler
+    start_scheduler()
+    print("✅ Autonomous scheduler initialized - runs daily at 10 PM ET")
+except Exception as e:
+    print(f"⚠️  Scheduler initialization failed (manual runs will still work): {e}")
 
 # -------------------------------------------------
 # ROUTER
