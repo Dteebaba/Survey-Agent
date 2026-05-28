@@ -52,7 +52,7 @@ def _drive_request(method: str, path: str, *, params=None, data=None,
     return resp
 
 SPREADSHEET_FILE_ID = os.getenv("GOOGLE_SHEETS_ID", "151jig9_3v-__dHfk7TksitJYONDMOLQV")
-SHEET_TAB_NAME = "Sheet2"
+SHEET_TAB_NAME = "Sheet3"
 
 
 # -------------------------------------------------
