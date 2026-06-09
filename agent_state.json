@@ -1,6 +1,6 @@
 {
-  "last_processed_file_id": "1ExBlGtegzXw7czdrnOvdNBoRPh4BQaYO",
-  "last_processed_file_name": "Opportunities_05-26-2026_to_05-26-2026.csv",
+  "last_processed_file_id": "1Grse8YnYOhvCj_hBKh-sNJI5wK-a-_nh",
+  "last_processed_file_name": "Opportunities_06-08-2026_to_06-08-2026.csv",
   "last_processed_date": "2026-05-28T17:08:31.909125",
   "files_processed": [
     {
@@ -11,10 +11,262 @@
       "timestamp": "2026-05-28T17:08:31.909142"
     }
   ],
-  "last_run_time": "2026-05-28T17:08:31.909137",
-  "total_rows_added": 0,
-  "total_files_processed": 1,
+  "last_run_time": "2026-06-09T04:44:02.983531",
+  "total_rows_added": 2592,
+  "total_files_processed": 32,
   "errors": [],
   "last_reviewed": null,
-  "last_appended": null
+  "last_appended": null,
+  "processed_file_ids": [
+    "1wRUX7OdrvlttKmLuWU0ivbcdzPn2T6Mg",
+    "18iPlW_8pNnSgoXmwOsv9k318fcdejkUW",
+    "1e4VJYYAXEX25CpLaLfUUs3VCOXA7P_5p",
+    "1zA_sOPkVp7gWuKlM3tFmOe4rn0hIea-z",
+    "1g3Yg85elC8Eb3DS7tctNgeREPgeUyZGa",
+    "1uDTrXJnetEvF_B6yHAQgbSAnS-yt38nh",
+    "11eOxxdHyTDdBSsRmP-siOGJaA6MmakcP",
+    "1lACPXIUVpFid6GyagK7tMsmf0Cx2u32t",
+    "1PfL5I-A7YOVHliTiwv3VPpVBwbSSiWOP",
+    "1VMBly-NUkSjNyZHpQhkhD-NHkSk2HRLc",
+    "1Zv_aMVj9Te3Pc17etdpwV8GActy-a-JL",
+    "1JUZXBj-xX6q-LdwKli7-tfJZFsnK3jCr",
+    "1mgPVB9lQwnwNY0zup6Ar6EKr6BpGXUa-",
+    "1bklT0Y9FlVjRKr60567mjd-4DA9NwqnP",
+    "1S3XyKUYh5I_lomFa1O_JTI7V9_HAsM5_",
+    "1eAuUL82DmkRzSKDHRXheeNTtyxkRd-_Q",
+    "1w5VEIso8OTQE3ss4SGSfh3DQpX4gTe3F",
+    "1IxQfrp5P3HpYAxx7h4N9kLrWNYmLEMRA",
+    "1ExBlGtegzXw7czdrnOvdNBoRPh4BQaYO",
+    "1X4hWfQCcn6q2DRoG32cYK80tq22LO9Am",
+    "1vt7_tNnnnHKrYapMDKYd8NCHNpRJnFiX",
+    "1xRcUFR98FySf7HMDM4QLTz-x8t1-o10f",
+    "1FOoKop1wUt0jEAyjvvuQzJDUfia2KdRC",
+    "17cjI9T_gPK4sO8abmWVfQTA8TP6oer3I",
+    "1VZx7TkyTZxTMoE9F-Q_bRX5qXDuqVZrE",
+    "1f_j22eVCZk1onInwBYBSTvMsPjZEhrd1",
+    "1eelABrCChXNBzEBB3bGmnYu68OTHnJ1d",
+    "1qjOl71WJPHzuAz45y3HF4WSmY0IrQpd1",
+    "1YxBxbFP7srDF_FORclsiA2zlXSk5httr",
+    "1uIWv5dCoCVqKSz3uPrxBeBJs6onTKTC9",
+    "1Grse8YnYOhvCj_hBKh-sNJI5wK-a-_nh"
+  ],
+  "processed_files": [
+    {
+      "id": "1wRUX7OdrvlttKmLuWU0ivbcdzPn2T6Mg",
+      "name": "Opportunities_05-08-2026_to_05-08-2026.csv",
+      "rows_added": 16,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:39:54.952459"
+    },
+    {
+      "id": "18iPlW_8pNnSgoXmwOsv9k318fcdejkUW",
+      "name": "Opportunities_05-09-2026_to_05-09-2026.csv",
+      "rows_added": 1,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:40:00.366372"
+    },
+    {
+      "id": "1e4VJYYAXEX25CpLaLfUUs3VCOXA7P_5p",
+      "name": "Opportunities_05-10-2026_to_05-10-2026.csv",
+      "rows_added": 0,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:40:02.799294"
+    },
+    {
+      "id": "1zA_sOPkVp7gWuKlM3tFmOe4rn0hIea-z",
+      "name": "Opportunities_05-11-2026_to_05-11-2026.csv",
+      "rows_added": 29,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:40:12.841279"
+    },
+    {
+      "id": "1g3Yg85elC8Eb3DS7tctNgeREPgeUyZGa",
+      "name": "Opportunities_05-12-2026_to_05-12-2026.csv",
+      "rows_added": 37,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:40:24.401314"
+    },
+    {
+      "id": "1uDTrXJnetEvF_B6yHAQgbSAnS-yt38nh",
+      "name": "Opportunities_05-13-2026_to_05-13-2026.csv",
+      "rows_added": 36,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:40:33.319393"
+    },
+    {
+      "id": "11eOxxdHyTDdBSsRmP-siOGJaA6MmakcP",
+      "name": "Opportunities_05-14-2026_to_05-14-2026.csv",
+      "rows_added": 47,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:40:42.576358"
+    },
+    {
+      "id": "1lACPXIUVpFid6GyagK7tMsmf0Cx2u32t",
+      "name": "Opportunities_05-15-2026_to_05-15-2026.csv",
+      "rows_added": 27,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:40:51.825393"
+    },
+    {
+      "id": "1PfL5I-A7YOVHliTiwv3VPpVBwbSSiWOP",
+      "name": "Opportunities_05-17-2026_to_05-17-2026.csv",
+      "rows_added": 0,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:40:53.806606"
+    },
+    {
+      "id": "1VMBly-NUkSjNyZHpQhkhD-NHkSk2HRLc",
+      "name": "Opportunities_05-16-2026_to_05-16-2026.csv",
+      "rows_added": 3,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:40:59.597028"
+    },
+    {
+      "id": "1Zv_aMVj9Te3Pc17etdpwV8GActy-a-JL",
+      "name": "Opportunities_05-18-2026_to_05-18-2026.csv",
+      "rows_added": 34,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:41:08.881659"
+    },
+    {
+      "id": "1JUZXBj-xX6q-LdwKli7-tfJZFsnK3jCr",
+      "name": "Opportunities_05-19-2026_to_05-19-2026.csv",
+      "rows_added": 50,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:41:20.137959"
+    },
+    {
+      "id": "1mgPVB9lQwnwNY0zup6Ar6EKr6BpGXUa-",
+      "name": "Opportunities_05-20-2026_to_05-20-2026.csv",
+      "rows_added": 55,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:41:29.256443"
+    },
+    {
+      "id": "1bklT0Y9FlVjRKr60567mjd-4DA9NwqnP",
+      "name": "Opportunities_05-21-2026_to_05-21-2026.csv",
+      "rows_added": 60,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:41:39.186404"
+    },
+    {
+      "id": "1S3XyKUYh5I_lomFa1O_JTI7V9_HAsM5_",
+      "name": "Opportunities_05-22-2026_to_05-22-2026.csv",
+      "rows_added": 39,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:41:47.260183"
+    },
+    {
+      "id": "1eAuUL82DmkRzSKDHRXheeNTtyxkRd-_Q",
+      "name": "Opportunities_05-23-2026_to_05-23-2026.csv",
+      "rows_added": 2,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:41:53.982311"
+    },
+    {
+      "id": "1w5VEIso8OTQE3ss4SGSfh3DQpX4gTe3F",
+      "name": "Opportunities_05-24-2026_to_05-24-2026.csv",
+      "rows_added": 1,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:42:00.234524"
+    },
+    {
+      "id": "1IxQfrp5P3HpYAxx7h4N9kLrWNYmLEMRA",
+      "name": "Opportunities_05-25-2026_to_05-25-2026.csv",
+      "rows_added": 1,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:42:07.339227"
+    },
+    {
+      "id": "1ExBlGtegzXw7czdrnOvdNBoRPh4BQaYO",
+      "name": "Opportunities_05-26-2026_to_05-26-2026.csv",
+      "rows_added": 129,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:42:17.552235"
+    },
+    {
+      "id": "1X4hWfQCcn6q2DRoG32cYK80tq22LO9Am",
+      "name": "Opportunities_05-28-2026_to_05-28-2026.csv",
+      "rows_added": 145,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:42:26.311262"
+    },
+    {
+      "id": "1vt7_tNnnnHKrYapMDKYd8NCHNpRJnFiX",
+      "name": "Opportunities_05-29-2026_to_05-29-2026.csv",
+      "rows_added": 106,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:42:36.725707"
+    },
+    {
+      "id": "1xRcUFR98FySf7HMDM4QLTz-x8t1-o10f",
+      "name": "Opportunities_05-30-2026_to_05-30-2026.csv",
+      "rows_added": 1,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:42:43.358994"
+    },
+    {
+      "id": "1FOoKop1wUt0jEAyjvvuQzJDUfia2KdRC",
+      "name": "Opportunities_05-31-2026_to_05-31-2026.csv",
+      "rows_added": 77,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:42:51.121096"
+    },
+    {
+      "id": "17cjI9T_gPK4sO8abmWVfQTA8TP6oer3I",
+      "name": "Opportunities_06-01-2026_to_06-01-2026.csv",
+      "rows_added": 113,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:43:00.104830"
+    },
+    {
+      "id": "1VZx7TkyTZxTMoE9F-Q_bRX5qXDuqVZrE",
+      "name": "Opportunities_06-02-2026_to_06-02-2026.csv",
+      "rows_added": 161,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:43:09.086836"
+    },
+    {
+      "id": "1f_j22eVCZk1onInwBYBSTvMsPjZEhrd1",
+      "name": "Opportunities_06-06-2026_to_06-06-2026.csv",
+      "rows_added": 7,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:43:16.755608"
+    },
+    {
+      "id": "1eelABrCChXNBzEBB3bGmnYu68OTHnJ1d",
+      "name": "Opportunities_06-07-2026_to_06-07-2026.csv",
+      "rows_added": 116,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:43:24.509145"
+    },
+    {
+      "id": "1qjOl71WJPHzuAz45y3HF4WSmY0IrQpd1",
+      "name": "Opportunities_06-05-2026_to_06-05-2026.csv",
+      "rows_added": 195,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:43:33.484046"
+    },
+    {
+      "id": "1YxBxbFP7srDF_FORclsiA2zlXSk5httr",
+      "name": "Opportunities_06-04-2026_to_06-04-2026.csv",
+      "rows_added": 471,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:43:43.330629"
+    },
+    {
+      "id": "1uIWv5dCoCVqKSz3uPrxBeBJs6onTKTC9",
+      "name": "Opportunities_06-03-2026_to_06-03-2026.csv",
+      "rows_added": 337,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:43:52.789771"
+    },
+    {
+      "id": "1Grse8YnYOhvCj_hBKh-sNJI5wK-a-_nh",
+      "name": "Opportunities_06-08-2026_to_06-08-2026.csv",
+      "rows_added": 296,
+      "status": "ok",
+      "timestamp": "2026-06-09T04:44:02.983546"
+    }
+  ]
 }

@@ -1,8 +1,8 @@
 """
-Google Drive and Sheets connector.
-Since the target spreadsheet is an .xlsx Office file (not a native Google Sheet),
-we use a download-append-reupload pattern via the Drive API.
-Tokens are read from token_store.py (.connector_tokens.json).
+Google Drive and Sheets connector v2.
+Fresh sheet. On first run processes ALL files oldest→newest.
+On subsequent runs skips already-processed files.
+Uses GOOGLE_ACCESS_TOKEN from Replit Secrets.
 """
 import io
 import logging
@@ -10,122 +10,165 @@ import os
 import requests
 import openpyxl
 from openpyxl.worksheet.datavalidation import DataValidation
-from token_store import clear_tokens, get_proxy_config
+from openpyxl.styles import Font, PatternFill, Alignment
 
 log = logging.getLogger(__name__)
 
-# Google Drive API base (direct)
-_DRIVE_BASE = "https://www.googleapis.com"
-
-
-def _drive_request(method: str, path: str, *, params=None, data=None,
-                   headers_extra=None, timeout=30) -> requests.Response:
-    """
-    Make a Drive API request via Replit's connectors proxy.
-    Automatically refreshes proxy headers on 401 and retries once.
-    `path` should start with '/drive/v3/...' or '/upload/drive/v3/...'.
-    """
-    for attempt in range(2):
-        try:
-            cfg = get_proxy_config()
-        except Exception as e:
-            raise RuntimeError(f"Cannot get proxy config: {e}") from e
-
-        proxy_url = cfg["proxy_url"]
-        headers = dict(cfg["proxy_headers"])
-        if headers_extra:
-            headers.update(headers_extra)
-
-        url = proxy_url + path
-        resp = requests.request(
-            method, url,
-            params=params, data=data,
-            headers=headers, timeout=timeout,
-        )
-        if resp.status_code == 401 and attempt == 0:
-            log.warning("⚠️  401 from proxy — clearing cache and refreshing…")
-            clear_tokens()
-            continue
-        resp.raise_for_status()
-        return resp
-    resp.raise_for_status()
-    return resp
-
 SPREADSHEET_FILE_ID = os.getenv("GOOGLE_SHEETS_ID", "151jig9_3v-__dHfk7TksitJYONDMOLQV")
-SHEET_TAB_NAME = "Sheet3"
+SHEET_TAB_NAME      = "Opportunities"   # ← new clean tab name
+
+OUTPUT_COLUMNS = [
+    "Solicitation Number",
+    "Title",
+    "Agency",
+    "Solicitation Date",
+    "Due Date",
+    "Opportunity Type",
+    "Normalized Set Aside",
+    "UiLink",
+    "Progress Report",
+    "Award Date",
+]
+
+PROGRESS_OPTIONS = (
+    "Bid Submitted,Bid InProgress,Sub Contractor Inquiry,"
+    "Bid Past Due Date,Bid Quote Requested"
+)
 
 
-# -------------------------------------------------
-# Google Drive helpers
-# -------------------------------------------------
+# ─────────────────────────────────────────────
+# Auth
+# ─────────────────────────────────────────────
+
+def _token() -> str:
+    from token_store import get_token
+    return get_token("google-drive")
+
+
+def _headers(extra: dict = None) -> dict:
+    h = {"Authorization": f"Bearer {_token()}"}
+    if extra:
+        h.update(extra)
+    return h
+
+
+# ─────────────────────────────────────────────
+# Drive helpers
+# ─────────────────────────────────────────────
 
 def list_drive_files(folder_id: str) -> list:
-    resp = _drive_request(
-        "GET",
-        "/drive/v3/files",
+    """List all CSV/xlsx files, oldest first."""
+    resp = requests.get(
+        "https://www.googleapis.com/drive/v3/files",
         params={
             "q": f"'{folder_id}' in parents and trashed=false",
             "fields": "files(id,name,mimeType,modifiedTime,createdTime)",
-            "orderBy": "createdTime desc",
+            "orderBy": "createdTime asc",   # oldest first
             "pageSize": 200,
         },
+        headers=_headers(),
         timeout=30,
     )
+    resp.raise_for_status()
     return resp.json().get("files", [])
 
 
 def download_drive_file(file_id: str) -> bytes:
-    resp = _drive_request(
-        "GET",
-        f"/drive/v3/files/{file_id}",
+    resp = requests.get(
+        f"https://www.googleapis.com/drive/v3/files/{file_id}",
         params={"alt": "media"},
+        headers=_headers(),
         timeout=60,
     )
+    resp.raise_for_status()
     return resp.content
 
 
 def upload_drive_file(file_id: str, content: bytes, mime_type: str) -> dict:
-    """Update an existing file in Drive with new content."""
-    resp = _drive_request(
-        "PATCH",
-        f"/upload/drive/v3/files/{file_id}",
+    resp = requests.patch(
+        f"https://www.googleapis.com/upload/drive/v3/files/{file_id}",
         params={"uploadType": "media"},
+        headers=_headers({"Content-Type": mime_type}),
         data=content,
-        headers_extra={"Content-Type": mime_type},
-        timeout=60,
+        timeout=120,
     )
+    resp.raise_for_status()
     return resp.json()
 
 
-# -------------------------------------------------
-# xlsx append helpers (Drive-based, works with Office files)
-# -------------------------------------------------
+# ─────────────────────────────────────────────
+# Sheet setup
+# ─────────────────────────────────────────────
 
-def get_existing_dedup_keys() -> tuple[set, set]:
-    """
-    Download the master xlsx and return two dedup sets:
-      (solicitation_numbers, uilinks)
-    Both are used for deduplication — UiLink is the fallback when
-    Solicitation Number is blank in the source data.
-    """
-    try:
-        raw = download_drive_file(SPREADSHEET_FILE_ID)
-        wb = openpyxl.load_workbook(io.BytesIO(raw))
+def _open_master() -> tuple:
+    """Download master xlsx. Returns (wb, ws, raw_bytes)."""
+    raw = download_drive_file(SPREADSHEET_FILE_ID)
+    wb  = openpyxl.load_workbook(io.BytesIO(raw))
+
+    # Create fresh tab if it doesn't exist
+    if SHEET_TAB_NAME not in wb.sheetnames:
+        log.info(f"Creating new sheet tab: '{SHEET_TAB_NAME}'")
+        ws = wb.create_sheet(SHEET_TAB_NAME)
+        _write_headers(ws)
+    else:
         ws = wb[SHEET_TAB_NAME]
+        # If sheet exists but has no headers, write them
+        if ws.max_row == 0 or ws.cell(1, 1).value is None:
+            _write_headers(ws)
 
-        headers = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
+    return wb, ws, raw
 
-        def _find_col(name: str) -> int | None:
+
+def _write_headers(ws):
+    """Write bold headers to row 1."""
+    header_fill = PatternFill("solid", fgColor="4472C4")
+    header_font = Font(bold=True, color="FFFFFF")
+
+    for col_idx, col_name in enumerate(OUTPUT_COLUMNS, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=col_name)
+        cell.font      = header_fill and header_font
+        cell.fill      = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    # Set column widths
+    widths = [20, 40, 35, 18, 18, 20, 35, 40, 20, 18]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
+
+    log.info(f"Headers written to sheet '{ws.title}'")
+
+
+def _save_and_upload(wb) -> None:
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    upload_drive_file(
+        SPREADSHEET_FILE_ID,
+        buf.getvalue(),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    log.info("✅ Master sheet uploaded successfully")
+
+
+# ─────────────────────────────────────────────
+# Dedup keys
+# ─────────────────────────────────────────────
+
+def get_existing_dedup_keys() -> tuple:
+    """Return (solicitation_numbers, uilinks) already in the sheet."""
+    try:
+        _, ws, _ = _open_master()
+        headers  = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
+
+        def _find(name):
             for i, h in enumerate(headers):
                 if h and str(h).strip().lower() == name.lower():
                     return i + 1
             return None
 
-        sol_col = _find_col("Solicitation Number")
-        link_col = _find_col("UiLink")
-
-        sol_nums: set = set()
-        uilinks: set = set()
+        sol_col  = _find("Solicitation Number")
+        link_col = _find("UiLink")
+        sol_nums, uilinks = set(), set()
 
         for row in range(2, ws.max_row + 1):
             if sol_col:
@@ -137,129 +180,86 @@ def get_existing_dedup_keys() -> tuple[set, set]:
                 if v:
                     uilinks.add(str(v).strip())
 
+        log.info(f"Existing dedup keys: {len(sol_nums)} sol#, {len(uilinks)} links")
         return sol_nums, uilinks
-    except Exception:
+    except Exception as e:
+        log.warning(f"Could not load dedup keys: {e}")
         return set(), set()
 
 
+# Legacy wrapper
 def get_existing_solicitation_numbers() -> set:
-    """Legacy wrapper — returns solicitation numbers only."""
-    sol_nums, _ = get_existing_dedup_keys()
-    return sol_nums
+    s, _ = get_existing_dedup_keys()
+    return s
 
+
+# ─────────────────────────────────────────────
+# Append rows
+# ─────────────────────────────────────────────
 
 def append_rows_to_xlsx(rows: list, output_columns: list) -> int:
-    """
-    Download master xlsx, append rows, re-upload.
-    rows: list of dicts keyed by output_columns names.
-    Returns number of rows appended.
-    """
-    raw = download_drive_file(SPREADSHEET_FILE_ID)
-    wb = openpyxl.load_workbook(io.BytesIO(raw))
-    ws = wb[SHEET_TAB_NAME]
+    """Append rows to master sheet. Returns count appended."""
+    if not rows:
+        return 0
 
-    # Map header names to column indices (strip whitespace for matching)
+    wb, ws, _ = _open_master()
+
+    # Build header map
     header_map = {}
     for c in range(1, ws.max_column + 1):
-        val = ws.cell(1, c).value
-        if val:
-            header_map[str(val).strip()] = c
+        v = ws.cell(1, c).value
+        if v:
+            header_map[str(v).strip()] = c
 
-    # Determine next empty row
-    next_row = ws.max_row + 1
+    # Find true next empty row
+    next_row = 2
+    for r in range(ws.max_row, 1, -1):
+        if any(ws.cell(r, c).value for c in range(1, len(OUTPUT_COLUMNS) + 2)):
+            next_row = r + 1
+            break
+
+    log.info(f"Writing {len(rows)} rows starting at row {next_row}")
 
     for row_dict in rows:
         for col_name in output_columns:
             col_idx = header_map.get(col_name.strip())
             if col_idx is None:
                 continue
-            cell_val = row_dict.get(col_name, "")
-            ws.cell(row=next_row, column=col_idx, value=cell_val)
+            val = row_dict.get(col_name, "")
+            ws.cell(row=next_row, column=col_idx, value=val)
         next_row += 1
 
-    # Add / refresh dropdown validation on "Progress Report" column (col I = 9)
-    PROGRESS_OPTIONS = (
-        "Bid Submitted,Bid InProgress,Sub Contractor Inquiry,"
-        "Bid Past Due Date,Bid Quote Requested"
-    )
-    progress_col_idx = header_map.get("Progress Report")
-    if progress_col_idx is None:
-        # Fallback: find by stripping trailing spaces
-        for h, idx in header_map.items():
-            if h.strip() == "Progress Report":
-                progress_col_idx = idx
-                break
+    # Refresh dropdown
+    _apply_dropdown(ws, header_map)
 
-    if progress_col_idx is not None:
-        col_letter = openpyxl.utils.get_column_letter(progress_col_idx)
-        last_data_row = ws.max_row
-        dv_range = f"{col_letter}2:{col_letter}{max(last_data_row, 1000)}"
-
-        # Remove any existing validation on this column to avoid duplicates
-        ws.data_validations.dataValidation = [
-            v for v in ws.data_validations.dataValidation
-            if col_letter not in str(v.sqref)
-        ]
-
-        dv = DataValidation(
-            type="list",
-            formula1=f'"{PROGRESS_OPTIONS}"',
-            allow_blank=True,
-            showDropDown=False,
-            showErrorMessage=True,
-            errorTitle="Invalid option",
-            error="Please choose a value from the dropdown list.",
-        )
-        dv.sqref = dv_range
-        ws.add_data_validation(dv)
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-
-    upload_drive_file(
-        SPREADSHEET_FILE_ID,
-        buf.getvalue(),
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    _save_and_upload(wb)
     return len(rows)
 
 
 def apply_progress_dropdown() -> None:
-    """
-    Download the master xlsx, add the Progress Report dropdown to column I
-    (all data rows), and re-upload. Safe to call at any time.
-    """
-    PROGRESS_OPTIONS = (
-        "Bid Submitted,Bid InProgress,Sub Contractor Inquiry,"
-        "Bid Past Due Date,Bid Quote Requested"
-    )
+    """Re-apply Progress Report dropdown. Safe to call anytime."""
+    wb, ws, _ = _open_master()
+    header_map = {
+        str(ws.cell(1, c).value).strip(): c
+        for c in range(1, ws.max_column + 1)
+        if ws.cell(1, c).value
+    }
+    _apply_dropdown(ws, header_map)
+    _save_and_upload(wb)
 
-    raw = download_drive_file(SPREADSHEET_FILE_ID)
-    wb = openpyxl.load_workbook(io.BytesIO(raw))
-    ws = wb[SHEET_TAB_NAME]
 
-    # Locate Progress Report column
-    progress_col_idx = None
-    for c in range(1, ws.max_column + 1):
-        val = ws.cell(1, c).value
-        if val and str(val).strip() == "Progress Report":
-            progress_col_idx = c
-            break
-
-    if progress_col_idx is None:
+def _apply_dropdown(ws, header_map: dict):
+    col_idx = header_map.get("Progress Report")
+    if col_idx is None:
         return
+    col_letter = openpyxl.utils.get_column_letter(col_idx)
+    last_row   = max(ws.max_row, 1000)
+    dv_range   = f"{col_letter}2:{col_letter}{last_row}"
 
-    col_letter = openpyxl.utils.get_column_letter(progress_col_idx)
-    last_row = max(ws.max_row, 1000)
-    dv_range = f"{col_letter}2:{col_letter}{last_row}"
-
-    # Remove existing validations on this column
     ws.data_validations.dataValidation = [
         v for v in ws.data_validations.dataValidation
         if col_letter not in str(v.sqref)
     ]
-
     dv = DataValidation(
         type="list",
         formula1=f'"{PROGRESS_OPTIONS}"',
@@ -271,12 +271,3 @@ def apply_progress_dropdown() -> None:
     )
     dv.sqref = dv_range
     ws.add_data_validation(dv)
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    upload_drive_file(
-        SPREADSHEET_FILE_ID,
-        buf.getvalue(),
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )

@@ -14,3 +14,4 @@ pytz
 requests
 streamlit
 apscheduler==3.10.4
+google-auth
