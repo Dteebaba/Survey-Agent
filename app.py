@@ -229,54 +229,18 @@ def render_external_tools():
 # Almor LLC logo and SBA certification swivel in.
 # -------------------------------------------------
 
-# Pure HTML/CSS logo snippets (no SVG — Streamlit Cloud sanitizes SVG tags)
-_ALMOR_LOGO_HTML = """
-<div class="almor-logo">
-    <div class="almor-hex">A</div>
-    <div class="almor-wordmark">
-        <div class="almor-name">Almor</div>
-        <div class="almor-llc">LLC</div>
-    </div>
-</div>
-"""
-
-_SBA_BADGE_HTML = """
-<div class="sba-badge">
-    <div class="sba-badge-inner">
-        <div class="sba-top">SBA</div>
-        <div class="sba-red-bar"></div>
-        <div class="sba-mid">U.S. Small Business<br>Administration</div>
-        <div class="sba-bottom">SERVICE&#8209;DISABLED<br>VETERAN&#8209;OWNED<br>CERTIFIED</div>
-    </div>
-</div>
-"""
-
-
 def show_welcome():
-    st.markdown(
-        f"""
-        <div class="welcome-outer">
-            <div class="welcome-logos-row">
-                <div class="swivel-left logo-drop-shadow">
-                    {_ALMOR_LOGO_HTML}
-                </div>
-                <div class="welcome-divider"></div>
-                <div class="swivel-right logo-drop-shadow">
-                    {_SBA_BADGE_HTML}
-                </div>
-            </div>
-            <div class="welcome-brand fade-up">Survey Agent</div>
-            <div class="welcome-tagline fade-up" style="animation-delay:1.15s;">
-                Almor LLC &nbsp;·&nbsp; Federal Opportunity Intelligence Platform
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    _, center, _ = st.columns([3, 2, 3])
+    st.write("")
+    st.write("")
+    _, center, _ = st.columns([1, 2, 1])
     with center:
+        st.title("🦅 Almor LLC")
+        st.caption("SBA Service-Disabled Veteran-Owned Small Business")
+        st.write("")
+        st.subheader("Survey Agent")
+        st.write("Federal Opportunity Intelligence Platform")
+        st.write("")
+        st.write("")
         if st.button("Enter Workspace", use_container_width=True, type="primary"):
             goto("landing")
 
@@ -287,63 +251,23 @@ def show_welcome():
 def show_landing():
     username = st.session_state.get("username", "User")
 
-    # Header — self-contained, no split divs
-    st.markdown(
-        f"""
-        <div style="display:flex;align-items:center;gap:1.4rem;
-                    padding:1.25rem 1.5rem;background:white;
-                    border:1px solid #E5E7EB;border-radius:12px;
-                    margin-bottom:1.75rem;
-                    box-shadow:0 1px 3px rgba(0,0,0,0.08);">
-            {_ALMOR_LOGO_HTML}
-            <div style="border-left:1px solid #E5E7EB;padding-left:1.2rem;">
-                <div style="font-size:0.75rem;color:#6B7280;letter-spacing:0.06em;
-                            text-transform:uppercase;margin-bottom:2px;">
-                    Federal Opportunity Intelligence
-                </div>
-                <div style="font-size:1rem;color:#111827;font-weight:600;">
-                    Welcome back, {username}
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.title("🦅 Almor LLC — Survey Agent")
+    st.write(f"Welcome back, **{username}**")
+    st.divider()
 
-    # Two tiles — each fully self-contained
     col1, col2 = st.columns(2, gap="large")
 
     with col1:
-        st.markdown(
-            """
-            <div class="landing-tile landing-tile-ops">
-                <div class="landing-tile-icon">⚙️</div>
-                <div class="landing-tile-title">Operations</div>
-                <div class="landing-tile-desc">
-                    Document assistant, AI analysis tools, autonomous agent,
-                    and system management — all in one place.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.subheader("⚙️ Operations")
+        st.write("Document assistant, AI analysis tools, autonomous agent, and system management.")
+        st.write("")
         if st.button("Open Operations →", use_container_width=True, key="btn_ops"):
             goto("operations")
 
     with col2:
-        st.markdown(
-            """
-            <div class="landing-tile landing-tile-sol">
-                <div class="landing-tile-icon">📋</div>
-                <div class="landing-tile-title">Solicitations</div>
-                <div class="landing-tile-desc">
-                    Live view of the master opportunity sheet.
-                    Browse all entries and update bid status directly on the platform.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.subheader("📋 Solicitations")
+        st.write("Live view of the master opportunity sheet. Browse entries and update bid status.")
+        st.write("")
         if st.button("View Solicitations →", use_container_width=True, key="btn_sol"):
             goto("solicitations")
 
