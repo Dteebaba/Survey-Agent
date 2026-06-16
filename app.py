@@ -229,77 +229,26 @@ def render_external_tools():
 # Almor LLC logo and SBA certification swivel in.
 # -------------------------------------------------
 
-# SVG representations of the logos (embedded inline — no external files needed)
-_ALMOR_SVG = """
-<svg viewBox="0 0 270 88" xmlns="http://www.w3.org/2000/svg"
-     style="width:270px;height:88px;display:block">
-  <!-- Hexagon (flat-top: pointy left/right) -->
-  <polygon points="44,6 80,6 98,44 80,82 44,82 26,44"
-           fill="#1E4D0F" stroke="#163809" stroke-width="1.5"/>
-  <!-- White A -->
-  <text x="62" y="66"
-        font-family="Georgia,'Times New Roman',serif"
-        font-size="54" font-weight="bold"
-        fill="white" text-anchor="middle">A</text>
-  <!-- Almor -->
-  <text x="158" y="47"
-        font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif"
-        font-size="28" font-weight="800" fill="#1E4D0F"
-        letter-spacing="-0.4">Almor</text>
-  <!-- LLC -->
-  <text x="164" y="67"
-        font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif"
-        font-size="15" fill="#1E4D0F" letter-spacing="3">LLC</text>
-</svg>
+# Pure HTML/CSS logo snippets (no SVG — Streamlit Cloud sanitizes SVG tags)
+_ALMOR_LOGO_HTML = """
+<div class="almor-logo">
+    <div class="almor-hex">A</div>
+    <div class="almor-wordmark">
+        <div class="almor-name">Almor</div>
+        <div class="almor-llc">LLC</div>
+    </div>
+</div>
 """
 
-_SBA_SVG = """
-<svg viewBox="0 0 180 222" xmlns="http://www.w3.org/2000/svg"
-     style="width:180px;height:222px;display:block">
-  <!-- White background -->
-  <rect x="0" y="0" width="180" height="222" fill="white"/>
-  <!-- Outer border -->
-  <rect x="2" y="2" width="176" height="218" fill="none"
-        stroke="#1B2C8A" stroke-width="3.5"/>
-  <!-- Inner border -->
-  <rect x="8" y="8" width="164" height="206" fill="none"
-        stroke="#1B2C8A" stroke-width="1.5"/>
-  <!-- Top-left corner bracket -->
-  <rect x="18" y="18" width="30" height="4" fill="#1B2C8A"/>
-  <rect x="18" y="18" width="4"  height="30" fill="#1B2C8A"/>
-  <!-- Top-right corner bracket -->
-  <rect x="132" y="18" width="30" height="4" fill="#1B2C8A"/>
-  <rect x="158" y="18" width="4"  height="30" fill="#1B2C8A"/>
-  <!-- SBA text -->
-  <text x="90" y="86"
-        font-family="'Arial Black',Arial,sans-serif"
-        font-size="54" font-weight="900" fill="#1B2C8A"
-        text-anchor="middle" letter-spacing="-2">SBA</text>
-  <!-- Red horizontal bar (SBA logo accent) -->
-  <rect x="22" y="94" width="136" height="6" fill="#CC1111"/>
-  <!-- U.S. Small Business Administration -->
-  <text x="90" y="116"
-        font-family="Arial,sans-serif" font-size="10.5"
-        fill="#1B2C8A" text-anchor="middle" font-weight="600">U.S. Small Business</text>
-  <text x="90" y="131"
-        font-family="Arial,sans-serif" font-size="10.5"
-        fill="#1B2C8A" text-anchor="middle" font-weight="600">Administration</text>
-  <!-- Navy bottom banner -->
-  <rect x="2" y="148" width="176" height="72" fill="#1B2C8A"/>
-  <!-- White certification text -->
-  <text x="90" y="170"
-        font-family="'Arial Black',Arial,sans-serif"
-        font-size="11.5" font-weight="900" fill="white"
-        text-anchor="middle" letter-spacing="0.3">SERVICE-DISABLED</text>
-  <text x="90" y="188"
-        font-family="'Arial Black',Arial,sans-serif"
-        font-size="11.5" font-weight="900" fill="white"
-        text-anchor="middle" letter-spacing="0.3">VETERAN-OWNED</text>
-  <text x="90" y="207"
-        font-family="'Arial Black',Arial,sans-serif"
-        font-size="11.5" font-weight="900" fill="white"
-        text-anchor="middle" letter-spacing="0.3">CERTIFIED</text>
-</svg>
+_SBA_BADGE_HTML = """
+<div class="sba-badge">
+    <div class="sba-badge-inner">
+        <div class="sba-top">SBA</div>
+        <div class="sba-red-bar"></div>
+        <div class="sba-mid">U.S. Small Business<br>Administration</div>
+        <div class="sba-bottom">SERVICE&#8209;DISABLED<br>VETERAN&#8209;OWNED<br>CERTIFIED</div>
+    </div>
+</div>
 """
 
 
@@ -309,16 +258,16 @@ def show_welcome():
         <div class="welcome-outer">
             <div class="welcome-logos-row">
                 <div class="swivel-left logo-drop-shadow">
-                    {_ALMOR_SVG}
+                    {_ALMOR_LOGO_HTML}
                 </div>
-                <div class="welcome-divider swivel-left" style="animation-delay:0.2s"></div>
+                <div class="welcome-divider"></div>
                 <div class="swivel-right logo-drop-shadow">
-                    {_SBA_SVG}
+                    {_SBA_BADGE_HTML}
                 </div>
             </div>
             <div class="welcome-brand fade-up">Survey Agent</div>
-            <div class="welcome-tagline fade-up" style="animation-delay:1.15s">
-                Almor LLC · Federal Opportunity Intelligence Platform
+            <div class="welcome-tagline fade-up" style="animation-delay:1.15s;">
+                Almor LLC &nbsp;·&nbsp; Federal Opportunity Intelligence Platform
             </div>
         </div>
         """,
@@ -336,19 +285,24 @@ def show_welcome():
 # LANDING PAGE  (Operations | Solicitations)
 # -------------------------------------------------
 def show_landing():
-    st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
+    username = st.session_state.get("username", "User")
 
-    # Compact header with Almor branding
+    # Header — self-contained, no split divs
     st.markdown(
         f"""
-        <div style="display:flex;align-items:center;gap:1.2rem;margin-bottom:2rem;">
-            {_ALMOR_SVG}
-            <div>
-                <div style="font-size:0.8rem;color:#6B7280;letter-spacing:0.05em;text-transform:uppercase;">
+        <div style="display:flex;align-items:center;gap:1.4rem;
+                    padding:1.25rem 1.5rem;background:white;
+                    border:1px solid #E5E7EB;border-radius:12px;
+                    margin-bottom:1.75rem;
+                    box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+            {_ALMOR_LOGO_HTML}
+            <div style="border-left:1px solid #E5E7EB;padding-left:1.2rem;">
+                <div style="font-size:0.75rem;color:#6B7280;letter-spacing:0.06em;
+                            text-transform:uppercase;margin-bottom:2px;">
                     Federal Opportunity Intelligence
                 </div>
-                <div style="font-size:1.05rem;color:#374151;font-weight:600;">
-                    Welcome, {st.session_state.get('username', 'User')}
+                <div style="font-size:1rem;color:#111827;font-weight:600;">
+                    Welcome back, {username}
                 </div>
             </div>
         </div>
@@ -356,45 +310,42 @@ def show_landing():
         unsafe_allow_html=True,
     )
 
-    st.markdown(
-        """
-        <div class="landing-tile-grid">
+    # Two tiles — each fully self-contained
+    col1, col2 = st.columns(2, gap="large")
+
+    with col1:
+        st.markdown(
+            """
             <div class="landing-tile landing-tile-ops">
-                <span class="landing-tile-icon">⚙️</span>
+                <div class="landing-tile-icon">⚙️</div>
                 <div class="landing-tile-title">Operations</div>
                 <div class="landing-tile-desc">
                     Document assistant, AI analysis tools, autonomous agent,
                     and system management — all in one place.
                 </div>
             </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Open Operations →", use_container_width=True, key="btn_ops"):
+            goto("operations")
+
+    with col2:
+        st.markdown(
+            """
             <div class="landing-tile landing-tile-sol">
-                <span class="landing-tile-icon">📋</span>
+                <div class="landing-tile-icon">📋</div>
                 <div class="landing-tile-title">Solicitations</div>
                 <div class="landing-tile-desc">
                     Live view of the master opportunity sheet.
-                    Browse all solicitations and update bid status directly on the platform.
+                    Browse all entries and update bid status directly on the platform.
                 </div>
             </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("<div class='landing-btn-ops'>", unsafe_allow_html=True)
-        if st.button("Open Operations →", use_container_width=True):
-            goto("operations")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with col2:
-        st.markdown("<div class='landing-btn-sol'>", unsafe_allow_html=True)
-        if st.button("View Solicitations →", use_container_width=True):
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("View Solicitations →", use_container_width=True, key="btn_sol"):
             goto("solicitations")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # -------------------------------------------------
