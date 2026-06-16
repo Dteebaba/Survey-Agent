@@ -57,10 +57,8 @@ OUTPUT_COLUMNS = [
 ]
 
 QUALIFYING_SET_ASIDES = {
-    "SDVOSB",
-    "TOTAL SMALL BUSINESS SET ASIDE",
-    "VETERAN OWNED SMALL BUSINESS (VOSB)",
-    "SBA Certified Economically Disadvantaged WOSB (EDWOSB) Program Set-Aside (FAR 19.15)",
+    "SDVOSB",                      # covers SDVOSB and SDVOSBC short codes
+    "TOTAL SMALL BUSINESS SET ASIDE",  # covers SBA short code
 }
 
 COLUMN_MAP = {
@@ -127,7 +125,7 @@ def _normalize_set_aside(df: pd.DataFrame) -> pd.DataFrame:
     )
     improved = df2["_t2"].notna() & (df2["_t2"] != "NO SET-ASIDE")
     df.loc[unresolved & improved.reindex(df.index, fill_value=False), "Normalized_Set_Aside"] = \
-        df2.loc[improved, "_t2"].values
+        df2.loc[improved, "_t2"]
 
     still = df["Normalized_Set_Aside"].isna() | (df["Normalized_Set_Aside"] == "NO SET-ASIDE")
     if still.sum() == 0:
