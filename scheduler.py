@@ -1,19 +1,23 @@
 """
 scheduler.py
 ============
-Robust singleton background scheduler using APScheduler.
-Runs the autonomous pipeline daily at 9 PM ET (01:00 UTC).
+Singleton background scheduler using APScheduler.
+Fires the autonomous pipeline daily at 10 PM America/New_York (handles
+EDT ↔ EST automatically).
 
-Safe to import and call start_scheduler() on every server startup or
-Streamlit rerun — it will only ever create ONE scheduler thread.
+IMPORTANT — Replit deployment requirement
+------------------------------------------
+The scheduler runs in a background thread inside the same process as the
+Streamlit app.  If the process sleeps (free Replit plan with no browser tab
+open), the scheduler cannot fire.
 
-Replit deployment notes
------------------------
-- Enable "Always-On" (Replit Core / Hacker plan) so the process stays
-  alive overnight.  Without it the scheduler only fires while a browser
-  tab is open.
-- If you move to a Replit Deployment (Autoscale/Reserved VM), the
-  process is always alive — no extra configuration needed.
+To guarantee automatic nightly runs you MUST enable one of:
+  • Replit "Always On"   (Core / Hacker plan)
+  • Replit Deployment    (Autoscale or Reserved VM — process never sleeps)
+
+Every run result — whether triggered by the scheduler or a user — is written
+to agent_state.json so the dashboard always has a full history even after
+a server restart.
 """
 
 import logging
@@ -24,15 +28,15 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # ── Singleton guards ──────────────────────────────────────────────────────────
-_scheduler = None          # APScheduler instance
-_lock      = threading.Lock()
-_last_run_result: Optional[dict] = None   # stores outcome of most-recent job run
+_scheduler                = None
+_lock                     = threading.Lock()
+_last_run_result: Optional[dict] = None   # in-memory mirror (fallback)
 
 
 # ── Job ───────────────────────────────────────────────────────────────────────
 
 def _job_run_pipeline():
-    """Executed by the scheduler at the scheduled time."""
+    """Executed automatically by the scheduler at 10 PM ET every night."""
     global _last_run_result
 
     started = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -41,11 +45,20 @@ def _job_run_pipeline():
     logger.info("=" * 60)
 
     result = {
-        "started_at": started,
+        "started_at":  started,
         "finished_at": None,
-        "rows_added": 0,
-        "message": "",
-        "errors": [],
+        "rows_added":  0,
+        "message":     "",
+        "errors":      [],
+    }
+
+    summary = {
+        "files_checked":    0,
+        "files_processed":  0,
+        "total_rows_added": 0,
+        "errors":           [],
+        "processed_files":  [],
+        "message":          "",
     }
 
     try:
@@ -67,6 +80,8 @@ def _job_run_pipeline():
         logger.error(msg, exc_info=True)
         result["errors"].append(msg)
         result["message"] = msg
+        summary["errors"].append(msg)
+        summary["message"] = msg
         try:
             from agent_state import add_error
             add_error(msg)
@@ -75,6 +90,15 @@ def _job_run_pipeline():
 
     result["finished_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     _last_run_result = result
+
+    # ── Persist to disk so dashboard survives restarts ─────────────────────
+    try:
+        from agent_state import record_run
+        record_run("scheduled", summary)
+        logger.info("✅ Run recorded to agent_state.json")
+    except Exception as rec_err:
+        logger.warning("Could not persist run record: %s", rec_err)
+
     logger.info("=" * 60)
 
 
@@ -82,9 +106,8 @@ def _job_run_pipeline():
 
 def start_scheduler():
     """
-    Start the background scheduler (idempotent).
-    Job: daily at 01:00 UTC = 9 PM ET (EDT).
-    For EST (winter, Nov–Mar) add a second job at 02:00 UTC if needed.
+    Start the background scheduler (idempotent — safe to call on every rerun).
+    Job: daily at 22:00 America/New_York (10 PM ET, auto-adjusts EDT ↔ EST).
     """
     global _scheduler
 
@@ -101,12 +124,12 @@ def start_scheduler():
 
             _scheduler.add_job(
                 _job_run_pipeline,
-                CronTrigger(hour=1, minute=0, timezone="UTC"),  # 9 PM ET
+                CronTrigger(hour=22, minute=0, timezone="America/New_York"),
                 id="daily_pipeline",
-                name="Daily Autonomous Opportunity Pipeline",
+                name="Daily Autonomous Opportunity Pipeline — 10 PM ET",
                 replace_existing=True,
-                misfire_grace_time=3600,   # run even if up to 1 h late
-                coalesce=True,             # if multiple missed firings, run once
+                misfire_grace_time=3600,   # fire even if up to 1 h late
+                coalesce=True,             # if multiple misfires, run once
             )
 
             _scheduler.start()
@@ -122,7 +145,7 @@ def start_scheduler():
 
 
 def stop_scheduler():
-    """Gracefully shut down the scheduler (call on app teardown)."""
+    """Gracefully shut down the scheduler."""
     global _scheduler
     with _lock:
         if _scheduler and _scheduler.running:
@@ -132,28 +155,43 @@ def stop_scheduler():
 
 
 def get_scheduler_status() -> dict:
-    """Return a status dict for the admin/autonomous-agent UI panel."""
+    """Return a status dict for the dashboard panel."""
     global _scheduler, _last_run_result
 
     if _scheduler is None or not _scheduler.running:
         return {
-            "running": False,
-            "message": "Scheduler not running",
+            "running":  False,
+            "message":  "Scheduler not running (process may have restarted)",
+            "next_run": "—",
             "last_run": _last_run_result,
         }
 
     jobs = _scheduler.get_jobs()
+    next_run_raw = jobs[0].next_run_time if jobs else None
+
+    # Format next run time in ET
+    next_run_str = "—"
+    if next_run_raw:
+        try:
+            from datetime import timezone as tz
+            import pytz
+            et = pytz.timezone("America/New_York")
+            next_run_et = next_run_raw.astimezone(et)
+            next_run_str = next_run_et.strftime("%Y-%m-%d %I:%M %p ET")
+        except Exception:
+            next_run_str = str(next_run_raw)
+
     return {
         "running":  True,
         "job_name": jobs[0].name if jobs else "—",
-        "next_run": str(jobs[0].next_run_time) if jobs else "—",
+        "next_run": next_run_str,
         "trigger":  str(jobs[0].trigger) if jobs else "—",
         "last_run": _last_run_result,
     }
 
 
 def force_run_now() -> dict:
-    """Manually trigger the pipeline right now (for testing)."""
+    """Manually trigger the pipeline right now (for testing/admin use)."""
     logger.info("🔄 Force-running pipeline immediately…")
     _job_run_pipeline()
-    return _last_run_result or {"status": "ran"}
+    return _last_run_result or {}

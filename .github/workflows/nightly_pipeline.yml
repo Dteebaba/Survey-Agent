@@ -1,0 +1,49 @@
+name: Nightly Opportunity Pipeline
+
+# ── When to run ────────────────────────────────────────────────────────────
+on:
+  schedule:
+    # 02:00 UTC = 10:00 PM EDT (Mar–Nov)
+    # 02:00 UTC = 09:00 PM EST (Nov–Mar) — one hour early in winter
+    - cron: '0 2 * * *'
+
+  # Also lets you click "Run workflow" manually from the GitHub Actions tab
+  workflow_dispatch:
+
+# ── Job ────────────────────────────────────────────────────────────────────
+jobs:
+  run-pipeline:
+    name: Scan Drive & update master sheet
+    runs-on: ubuntu-latest
+    timeout-minutes: 30          # fail-safe: kill if stuck
+
+    steps:
+      # 1. Check out the repo (includes agent_state.json from last run)
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Set up Python
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      # 3. Install dependencies
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # 4. Run the pipeline
+      #    All secrets are injected as environment variables.
+      #    The script reads them with os.getenv().
+      - name: Run nightly pipeline
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          # GH_TOKEN is your Personal Access Token with gist scope.
+          # Mapped to GITHUB_TOKEN so existing code (auth.py, agent_state.py)
+          # can read it via os.getenv("GITHUB_TOKEN").
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: python pipeline_job.py

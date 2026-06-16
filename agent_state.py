@@ -1,24 +1,41 @@
 """
-Agent State v2 — tracks ALL processed file IDs (not just the last one).
-This enables skipping any previously processed file on every run.
+Agent State — persists run history and file tracking.
+
+State is stored in two places so it survives anywhere:
+  1. Local file  (agent_state.json) — fast, in-process cache
+  2. GitHub Gist — synced on startup and after every write;
+                   shared between GitHub Actions runs and Streamlit Cloud
+
+Call sync_from_gist() once at startup (pipeline_job.py and app.py do this).
+Every _save() writes locally AND pushes to the Gist.
 """
 
 import json
 import os
 from datetime import datetime
 
-STATE_FILE = "agent_state.json"
+import requests
+
+STATE_FILE   = "agent_state.json"
+GIST_FILE    = "agent_state.json"       # filename inside the Gist
+_GIST_ID     = os.getenv("GIST_ID", "")
+_GIST_TOKEN  = os.getenv("GITHUB_TOKEN", "")   # PAT with gist scope
 
 
-def _default():
+# ─────────────────────────────────────────────
+# Schema
+# ─────────────────────────────────────────────
+
+def _default() -> dict:
     return {
-        "processed_file_ids": [],          # list of ALL processed file IDs
-        "processed_files":    [],          # audit log with details
-        "last_processed_file_id":   None,  # convenience — most recent
+        "processed_file_ids":       [],
+        "processed_files":          [],
+        "last_processed_file_id":   None,
         "last_processed_file_name": None,
         "last_run_time":            None,
         "total_rows_added":         0,
         "total_files_processed":    0,
+        "run_log":                  [],
         "errors":                   [],
     }
 
@@ -29,26 +46,110 @@ def _ensure(state: dict) -> dict:
     return state
 
 
-def _load() -> dict:
+# ─────────────────────────────────────────────
+# Gist helpers
+# ─────────────────────────────────────────────
+
+def _gist_headers() -> dict:
+    return {
+        "Authorization": f"token {_GIST_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+
+def _load_from_gist() -> dict | None:
+    if not _GIST_ID or not _GIST_TOKEN:
+        return None
+    try:
+        resp = requests.get(
+            f"https://api.github.com/gists/{_GIST_ID}",
+            headers=_gist_headers(),
+            timeout=8,
+        )
+        if resp.status_code == 200:
+            files = resp.json().get("files", {})
+            if GIST_FILE in files:
+                return _ensure(json.loads(files[GIST_FILE]["content"]))
+    except Exception as e:
+        print(f"[agent_state] Gist load error: {e}")
+    return None
+
+
+def _save_to_gist(state: dict):
+    if not _GIST_ID or not _GIST_TOKEN:
+        return
+    try:
+        resp = requests.patch(
+            f"https://api.github.com/gists/{_GIST_ID}",
+            headers=_gist_headers(),
+            json={"files": {GIST_FILE: {"content": json.dumps(state, indent=2)}}},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            print("[agent_state] ✅ State saved to Gist")
+        else:
+            print(f"[agent_state] ⚠️  Gist save returned {resp.status_code}")
+    except Exception as e:
+        print(f"[agent_state] Gist save error: {e}")
+
+
+# ─────────────────────────────────────────────
+# Local file helpers
+# ─────────────────────────────────────────────
+
+def _load_local() -> dict | None:
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE) as f:
                 return _ensure(json.load(f))
         except Exception as e:
-            print(f"State load error: {e}")
-    return _default()
+            print(f"[agent_state] Local load error: {e}")
+    return None
 
 
-def _save(state: dict):
+def _save_local(state: dict):
     try:
         with open(STATE_FILE, "w") as f:
             json.dump(state, f, indent=2)
     except Exception as e:
-        print(f"State save error: {e}")
+        print(f"[agent_state] Local save error: {e}")
 
 
 # ─────────────────────────────────────────────
-# Public API
+# Core load / save
+# ─────────────────────────────────────────────
+
+def _load() -> dict:
+    """Read from local file (fast path). Falls back to default."""
+    return _load_local() or _default()
+
+
+def _save(state: dict):
+    """Write to local file and push to Gist."""
+    _save_local(state)
+    _save_to_gist(state)
+
+
+# ─────────────────────────────────────────────
+# Public: startup sync
+# ─────────────────────────────────────────────
+
+def sync_from_gist():
+    """
+    Pull the latest state from the Gist and cache it locally.
+    Call once at startup (pipeline_job.py and app.py).
+    No-op if Gist is not configured.
+    """
+    gist_state = _load_from_gist()
+    if gist_state is not None:
+        _save_local(gist_state)
+        print("[agent_state] ✅ Synced state from GitHub Gist")
+    else:
+        print("[agent_state] ℹ️  Gist not configured — using local state file")
+
+
+# ─────────────────────────────────────────────
+# File-level tracking
 # ─────────────────────────────────────────────
 
 def get_state() -> dict:
@@ -56,7 +157,6 @@ def get_state() -> dict:
 
 
 def get_processed_file_ids() -> set:
-    """Return set of ALL file IDs we've already processed."""
     return set(_load().get("processed_file_ids", []))
 
 
@@ -81,7 +181,6 @@ def is_file_seen(file_id: str) -> bool:
 def mark_file_seen(file_id: str, file_name: str, rows_added: int, status: str = "ok"):
     state = _load()
 
-    # Add to processed IDs set
     ids = state.get("processed_file_ids", [])
     if file_id not in ids:
         ids.append(file_id)
@@ -101,12 +200,60 @@ def mark_file_seen(file_id: str, file_name: str, rows_added: int, status: str = 
         "timestamp":  datetime.utcnow().isoformat(),
     })
 
-    # Keep audit log at max 200 entries
-    if len(state["processed_files"]) > 200:
-        state["processed_files"] = state["processed_files"][-200:]
+    if len(state["processed_files"]) > 500:
+        state["processed_files"] = state["processed_files"][-500:]
 
     _save(state)
 
+
+# ─────────────────────────────────────────────
+# Run-level logging
+# ─────────────────────────────────────────────
+
+def record_run(triggered_by: str, summary: dict):
+    """
+    Persist one pipeline invocation to the run log.
+    triggered_by: "scheduled" | "manual"
+    """
+    state = _load()
+
+    errors          = summary.get("errors", [])
+    files_processed = summary.get("files_processed", 0)
+
+    if errors:
+        run_status = "error"
+    elif files_processed == 0:
+        run_status = "no_new_files"
+    else:
+        run_status = "success"
+
+    entry = {
+        "timestamp":       datetime.utcnow().isoformat(),
+        "triggered_by":    triggered_by,
+        "files_checked":   summary.get("files_checked", 0),
+        "files_processed": files_processed,
+        "rows_added":      summary.get("total_rows_added", 0),
+        "status":          run_status,
+        "message":         summary.get("message", ""),
+        "errors":          errors,
+        "processed_files": [f["name"] for f in summary.get("processed_files", [])],
+    }
+
+    state["run_log"].append(entry)
+    if len(state["run_log"]) > 200:
+        state["run_log"] = state["run_log"][-200:]
+
+    _save(state)
+
+
+def get_run_log() -> list:
+    """Return run log, most recent first."""
+    return list(reversed(_load().get("run_log", [])))
+
+
+# ─────────────────────────────────────────────
+# Error log
+# ─────────────────────────────────────────────
 
 def add_error(message: str):
     state = _load()
@@ -114,28 +261,44 @@ def add_error(message: str):
         "message":   message,
         "timestamp": datetime.utcnow().isoformat(),
     })
-    if len(state["errors"]) > 50:
-        state["errors"] = state["errors"][-50:]
+    if len(state["errors"]) > 100:
+        state["errors"] = state["errors"][-100:]
     _save(state)
 
 
+# ─────────────────────────────────────────────
+# Summary
+# ─────────────────────────────────────────────
+
 def get_summary() -> dict:
     state = _load()
+
     last_run = state.get("last_run_time", "Never")
     if last_run and last_run != "Never":
         try:
             last_run = datetime.fromisoformat(last_run).strftime("%Y-%m-%d %H:%M UTC")
         except Exception:
             pass
+
+    run_log       = state.get("run_log", [])
+    last_run_entry = run_log[-1] if run_log else None
+
     return {
-        "last_file_processed":    state.get("last_processed_file_name") or "None",
-        "last_run_time":          last_run or "Never",
-        "total_files_processed":  state.get("total_files_processed", 0),
-        "total_rows_added":       state.get("total_rows_added", 0),
-        "processed_file_count":   len(state.get("processed_file_ids", [])),
-        "recent_errors":          state.get("errors", [])[-5:],
+        "last_file_processed":   state.get("last_processed_file_name") or "—",
+        "last_run_time":         last_run or "Never",
+        "total_files_processed": state.get("total_files_processed", 0),
+        "total_rows_added":      state.get("total_rows_added", 0),
+        "processed_file_count":  len(state.get("processed_file_ids", [])),
+        "last_run_entry":        last_run_entry,
+        "recent_errors":         state.get("errors", [])[-10:],
+        "run_log":               run_log,
+        "processed_files":       state.get("processed_files", []),
     }
 
+
+# ─────────────────────────────────────────────
+# Reset
+# ─────────────────────────────────────────────
 
 def reset_state():
     """Full reset — next run will process ALL files from scratch."""

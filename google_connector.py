@@ -271,3 +271,62 @@ def _apply_dropdown(ws, header_map: dict):
     )
     dv.sqref = dv_range
     ws.add_data_validation(dv)
+
+
+# ─────────────────────────────────────────────
+# Read sheet data (for Solicitations page)
+# ─────────────────────────────────────────────
+
+def read_master_sheet():
+    """Download master sheet and return data as a pandas DataFrame."""
+    import pandas as pd
+
+    _, ws, _ = _open_master()
+
+    if ws.max_row < 1:
+        return pd.DataFrame()
+
+    headers = [ws.cell(1, c).value or f"Col{c}" for c in range(1, ws.max_column + 1)]
+
+    rows = []
+    for r in range(2, ws.max_row + 1):
+        vals = [ws.cell(r, c).value for c in range(1, ws.max_column + 1)]
+        if any(v is not None for v in vals):
+            rows.append(vals)
+
+    df = pd.DataFrame(rows, columns=headers)
+    # Ensure Progress Report exists as a string column
+    if "Progress Report" in df.columns:
+        df["Progress Report"] = df["Progress Report"].fillna("").astype(str).replace("None", "")
+    return df
+
+
+def update_progress_reports(row_updates: dict) -> int:
+    """
+    Write Progress Report values back to the master sheet.
+
+    row_updates: {sheet_row_number (int, 1-indexed, data starts at row 2): new_status (str)}
+    Returns count of rows updated.
+    """
+    if not row_updates:
+        return 0
+
+    wb, ws, _ = _open_master()
+
+    # Locate Progress Report column
+    headers = {str(ws.cell(1, c).value).strip(): c for c in range(1, ws.max_column + 1)}
+    prog_col = headers.get("Progress Report")
+    if not prog_col:
+        raise ValueError("'Progress Report' column not found in master sheet")
+
+    count = 0
+    for sheet_row, new_status in row_updates.items():
+        if 2 <= int(sheet_row) <= ws.max_row:
+            ws.cell(row=int(sheet_row), column=prog_col, value=new_status or None)
+            count += 1
+
+    if count:
+        _save_and_upload(wb)
+        log.info(f"Updated {count} Progress Report value(s) in master sheet")
+
+    return count

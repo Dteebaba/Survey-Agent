@@ -309,12 +309,255 @@ hr {
         border-color: #374151;
         color: #F9FAFB;
     }
-    
+
     .app-title {
         color: #F9FAFB;
     }
-    
+
     .app-subtitle {
         color: #D1D5DB;
+    }
+}
+
+/* =========================================
+   WELCOME / SPLASH PAGE
+   ========================================= */
+
+@keyframes swivel-in-left {
+    0%   { opacity: 0; transform: perspective(900px) rotateY(-90deg) scale(0.75); }
+    55%  { transform: perspective(900px) rotateY(14deg) scale(1.06); }
+    75%  { transform: perspective(900px) rotateY(-7deg) scale(1.02); }
+    100% { opacity: 1; transform: perspective(900px) rotateY(0deg) scale(1); }
+}
+
+@keyframes swivel-in-right {
+    0%   { opacity: 0; transform: perspective(900px) rotateY(90deg) scale(0.75); }
+    55%  { transform: perspective(900px) rotateY(-14deg) scale(1.06); }
+    75%  { transform: perspective(900px) rotateY(7deg) scale(1.02); }
+    100% { opacity: 1; transform: perspective(900px) rotateY(0deg) scale(1); }
+}
+
+@keyframes fade-up-in {
+    0%   { opacity: 0; transform: translateY(24px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+
+.swivel-left {
+    animation: swivel-in-left 1.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+    opacity: 0;
+}
+
+.swivel-right {
+    animation: swivel-in-right 1.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) 0.4s forwards;
+    opacity: 0;
+}
+
+.fade-up {
+    animation: fade-up-in 0.9s ease-out 1.0s forwards;
+    opacity: 0;
+}
+
+.welcome-outer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 82vh;
+    text-align: center;
+    background: linear-gradient(160deg, #f0f7ec 0%, #ddefd4 45%, #f5fbf2 100%);
+    border-radius: 20px;
+    padding: 3.5rem 2rem 2.5rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.welcome-outer::before {
+    content: '';
+    position: absolute;
+    top: -40%;
+    left: -30%;
+    width: 160%;
+    height: 160%;
+    background: radial-gradient(ellipse at 50% 40%, rgba(45,90,27,0.07) 0%, transparent 65%);
+    pointer-events: none;
+}
+
+.welcome-logos-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3.5rem;
+    margin-bottom: 2.5rem;
+    flex-wrap: wrap;
+}
+
+.logo-drop-shadow {
+    filter: drop-shadow(0 10px 28px rgba(0,0,0,0.14));
+}
+
+.welcome-divider {
+    width: 2px;
+    height: 130px;
+    background: linear-gradient(180deg, transparent 0%, #2D5A1B 40%, #2D5A1B 60%, transparent 100%);
+    opacity: 0.35;
+    flex-shrink: 0;
+}
+
+.welcome-tagline {
+    font-size: 1.1rem;
+    color: #3D7A20;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    margin-bottom: 0.4rem;
+}
+
+.welcome-brand {
+    font-size: 2rem;
+    font-weight: 800;
+    color: #1E4D0F;
+    letter-spacing: -0.025em;
+    margin-bottom: 2rem;
+}
+
+/* =========================================
+   LANDING PAGE (Operations / Solicitations)
+   ========================================= */
+
+.landing-hero {
+    text-align: center;
+    padding: 2rem 1rem 1rem;
+}
+
+.landing-hero-title {
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: #111827;
+    letter-spacing: -0.03em;
+    margin-bottom: 0.4rem;
+}
+
+.landing-hero-sub {
+    font-size: 1rem;
+    color: #6B7280;
+    margin-bottom: 2rem;
+}
+
+.landing-tile-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.75rem;
+    max-width: 900px;
+    margin: 0 auto 2rem;
+}
+
+.landing-tile {
+    border-radius: 18px;
+    padding: 2.8rem 2rem 2rem;
+    text-align: center;
+    color: white;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+
+.landing-tile::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -20%;
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.07);
+    pointer-events: none;
+}
+
+.landing-tile:hover {
+    transform: translateY(-7px);
+    box-shadow: 0 22px 44px rgba(0,0,0,0.18);
+}
+
+.landing-tile-ops {
+    background: linear-gradient(140deg, #1B3A4B 0%, #2C5364 60%, #1a3040 100%);
+    box-shadow: 0 8px 28px rgba(27,58,75,0.38);
+}
+
+.landing-tile-sol {
+    background: linear-gradient(140deg, #1E4D0F 0%, #2D6B18 60%, #174009 100%);
+    box-shadow: 0 8px 28px rgba(30,77,15,0.38);
+}
+
+.landing-tile-icon {
+    font-size: 3.2rem;
+    display: block;
+    margin-bottom: 1rem;
+    line-height: 1;
+}
+
+.landing-tile-title {
+    font-size: 1.75rem;
+    font-weight: 800;
+    margin-bottom: 0.6rem;
+    letter-spacing: -0.02em;
+}
+
+.landing-tile-desc {
+    font-size: 0.9rem;
+    opacity: 0.88;
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+}
+
+/* Style the Streamlit buttons inside landing tiles */
+.landing-btn-ops .stButton > button {
+    background: rgba(255,255,255,0.18) !important;
+    border: 1.5px solid rgba(255,255,255,0.5) !important;
+    color: white !important;
+    font-weight: 700;
+    border-radius: 10px;
+    width: 100%;
+}
+.landing-btn-ops .stButton > button:hover {
+    background: rgba(255,255,255,0.28) !important;
+}
+
+.landing-btn-sol .stButton > button {
+    background: rgba(255,255,255,0.18) !important;
+    border: 1.5px solid rgba(255,255,255,0.5) !important;
+    color: white !important;
+    font-weight: 700;
+    border-radius: 10px;
+    width: 100%;
+}
+.landing-btn-sol .stButton > button:hover {
+    background: rgba(255,255,255,0.28) !important;
+}
+
+/* =========================================
+   SOLICITATIONS PAGE
+   ========================================= */
+
+.sol-stat-card {
+    background: linear-gradient(135deg, #1E4D0F 0%, #2D6B18 100%);
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    color: white;
+    display: inline-block;
+    margin-bottom: 1rem;
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+@media (max-width: 768px) {
+    .landing-tile-grid {
+        grid-template-columns: 1fr;
+    }
+    .welcome-logos-row {
+        gap: 2rem;
+    }
+    .welcome-divider {
+        width: 100px;
+        height: 2px;
     }
 }
