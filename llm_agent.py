@@ -8,13 +8,17 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-if not OPENAI_API_KEY:
-    raise ValueError("OPENAI_API_KEY missing")
+_client = None
 
-
-client = OpenAI(api_key=OPENAI_API_KEY)
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        key = os.getenv("OPENAI_API_KEY")
+        if not key:
+            raise ValueError("OPENAI_API_KEY is not set")
+        _client = OpenAI(api_key=key)
+    return _client
 
 
 # -------------------------------------------------
@@ -27,7 +31,7 @@ def summarize_dataset(eda: Dict) -> str:
         "Explain briefly the content and main fields."
     )
 
-    r = client.chat.completions.create(
+    r = _get_client().chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
             {"role": "system", "content": "Be concise and clear."},
@@ -182,7 +186,7 @@ Schema to follow:
         "note": "Return operators only. Python does ALL date math.",
     }
 
-    r = client.chat.completions.create(
+    r = _get_client().chat.completions.create(
         model="gpt-4.1-mini",
         response_format={"type": "json_object"},
         messages=[
@@ -242,7 +246,7 @@ def classify_set_aside_descriptions(descriptions: list[str]) -> dict[str, str]:
     )
 
     try:
-        r = client.chat.completions.create(
+        r = _get_client().chat.completions.create(
             model="gpt-4.1-mini",
             messages=[
                 {"role": "system", "content": "Return only valid JSON. No markdown."},
