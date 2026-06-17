@@ -320,6 +320,112 @@ hr {
 }
 
 /* =========================================
+   ALMOR LLC LOGO  (CSS-only, no SVG)
+   ========================================= */
+
+.almor-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+}
+
+/* Hexagon shape for the "A" */
+.almor-hex {
+    width: 72px;
+    height: 72px;
+    background: #1E4D0F;
+    clip-path: polygon(50% 0%, 95% 25%, 95% 75%, 50% 100%, 5% 75%, 5% 25%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 2.6rem;
+    font-weight: 900;
+    color: white;
+    flex-shrink: 0;
+}
+
+.almor-wordmark {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    line-height: 1;
+}
+
+.almor-name {
+    font-size: 2rem;
+    font-weight: 800;
+    color: #1E4D0F;
+    letter-spacing: -0.03em;
+    font-family: 'Segoe UI', Arial, sans-serif;
+}
+
+.almor-llc {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #1E4D0F;
+    letter-spacing: 4px;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    margin-top: 2px;
+}
+
+/* =========================================
+   SBA BADGE  (CSS-only, no SVG/image)
+   ========================================= */
+
+.sba-badge {
+    width: 134px;
+    border: 3px solid #1B2C8A;
+    border-radius: 4px;
+    overflow: hidden;
+    background: white;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.sba-badge-inner {
+    border: 2px solid #1B2C8A;
+    margin: 4px;
+    overflow: hidden;
+}
+
+.sba-top {
+    padding: 0.6rem 0.5rem 0.15rem;
+    font-family: 'Arial Black', Arial, sans-serif;
+    font-size: 2.4rem;
+    font-weight: 900;
+    color: #1B2C8A;
+    letter-spacing: -2px;
+    line-height: 1;
+}
+
+.sba-red-bar {
+    height: 5px;
+    background: #CC1111;
+    margin: 0 0.4rem 0;
+}
+
+.sba-mid {
+    padding: 0.35rem 0.4rem;
+    font-size: 0.58rem;
+    color: #1B2C8A;
+    font-weight: 700;
+    line-height: 1.4;
+    font-family: Arial, sans-serif;
+}
+
+.sba-bottom {
+    background: #1B2C8A;
+    color: white;
+    font-family: 'Arial Black', Arial, sans-serif;
+    font-size: 0.6rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    padding: 0.5rem 0.3rem;
+    line-height: 1.7;
+}
+
+/* =========================================
    WELCOME / SPLASH PAGE
    ========================================= */
 
