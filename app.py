@@ -386,74 +386,51 @@ _PROGRESS_OPTIONS = [
 
 
 def show_solicitations():
-    st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div class='app-card'>
-            <div class='app-title'>Solicitations</div>
-            <div class='app-subtitle'>
-                Live view of tracked federal opportunities.
-                Update bid status directly — changes are saved back to the master sheet.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.title("📋 Solicitations")
+    st.caption("Live view of tracked federal opportunities. Progress Report status auto-saves on change.")
 
     col_back, col_refresh, col_spacer = st.columns([2, 2, 6])
     with col_back:
         if st.button("← Back to Home"):
             goto("landing")
     with col_refresh:
-        if st.button("Refresh Data"):
+        if st.button("🔄 Refresh from Sheet"):
             st.session_state.pop("sol_data", None)
             st.session_state.pop("sol_original_progress", None)
             st.rerun()
 
     # ── Load data ────────────────────────────────
     if "sol_data" not in st.session_state:
-        with st.spinner("Loading solicitations from master sheet…"):
+        with st.spinner("Loading from master sheet on Google Drive…"):
             try:
                 from google_connector import read_master_sheet
                 df = read_master_sheet()
                 st.session_state["sol_data"] = df
-                if "Progress Report" in df.columns:
-                    st.session_state["sol_original_progress"] = (
-                        df["Progress Report"].copy().reset_index(drop=True)
-                    )
-                else:
-                    st.session_state["sol_original_progress"] = None
+                st.session_state["sol_original_progress"] = (
+                    df["Progress Report"].copy().reset_index(drop=True)
+                    if "Progress Report" in df.columns else None
+                )
             except Exception as e:
-                st.error(f"Failed to load sheet data: {e}")
-                st.markdown("</div>", unsafe_allow_html=True)
+                st.error(f"Failed to load sheet: {e}")
                 return
 
     df = st.session_state["sol_data"]
 
     if df.empty:
         st.info("No solicitations found in the master sheet yet.")
-        st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    # ── Stats bar ─────────────────────────────────
+    # ── Stats ─────────────────────────────────
     total = len(df)
-    with_status = int((df.get("Progress Report", "") != "").sum()) if "Progress Report" in df.columns else 0
-    st.markdown(
-        f"""
-        <div style="display:flex;gap:1.5rem;margin-bottom:1rem;flex-wrap:wrap;">
-            <div class="sol-stat-card">📋 {total} Solicitations</div>
-            <div class="sol-stat-card">🏷️ {with_status} With Status</div>
-            <div class="sol-stat-card">⏳ {total - with_status} Pending Review</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    with_status = int((df["Progress Report"] != "").sum()) if "Progress Report" in df.columns else 0
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Solicitations", total)
+    c2.metric("With Status", with_status)
+    c3.metric("Pending Review", total - with_status)
+
+    st.write("**Tip:** Change any Progress Report dropdown — it saves to the master sheet automatically.")
 
     # ── Data editor ───────────────────────────────
-    st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-    st.markdown("**Edit** the _Progress Report_ column below, then click **Save Status Changes**.",
-                unsafe_allow_html=True)
-
     col_cfg = {}
     if "Progress Report" in df.columns:
         col_cfg["Progress Report"] = st.column_config.SelectboxColumn(
@@ -472,7 +449,7 @@ def show_solicitations():
         col_cfg["Solicitation Date"] = st.column_config.DateColumn("Solicitation Date", width="small")
 
     editable = ["Progress Report"] if "Progress Report" in df.columns else []
-    disabled = [c for c in df.columns if c not in editable]
+    disabled  = [c for c in df.columns if c not in editable]
 
     edited_df = st.data_editor(
         df,
@@ -481,47 +458,32 @@ def show_solicitations():
         use_container_width=True,
         num_rows="fixed",
         key="sol_editor",
-        height=520,
+        height=560,
     )
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # ── Save button ───────────────────────────────
-    _, save_col, _ = st.columns([4, 3, 4])
-    with save_col:
-        save_clicked = st.button("💾  Save Status Changes", type="primary", use_container_width=True)
-
-    if save_clicked:
-        original_prog = st.session_state.get("sol_original_progress")
+    # ── Auto-save on every rerun if anything changed ──
+    original_prog = st.session_state.get("sol_original_progress")
+    if original_prog is not None and "Progress Report" in edited_df.columns:
         updates = {}
-
-        if original_prog is not None and "Progress Report" in edited_df.columns:
-            for i, new_val in enumerate(edited_df["Progress Report"]):
-                old_val = original_prog.iloc[i] if i < len(original_prog) else ""
-                new_val_str = str(new_val or "")
-                old_val_str = str(old_val or "")
-                if new_val_str != old_val_str:
-                    updates[i + 2] = new_val_str  # sheet rows: 1=header, data starts at 2
+        for i, new_val in enumerate(edited_df["Progress Report"]):
+            old_val = original_prog.iloc[i] if i < len(original_prog) else ""
+            if str(new_val or "") != str(old_val or ""):
+                updates[i + 2] = str(new_val or "")   # sheet row: header=1, data starts at 2
 
         if updates:
-            with st.spinner(f"Saving {len(updates)} change(s) to master sheet…"):
+            with st.spinner(f"Auto-saving {len(updates)} change(s) to master sheet…"):
                 try:
                     from google_connector import update_progress_reports
                     count = update_progress_reports(updates)
-                    # Update cached original so next save compares correctly
                     st.session_state["sol_original_progress"] = (
                         edited_df["Progress Report"].copy().reset_index(drop=True)
                     )
                     st.session_state["sol_data"] = edited_df.copy()
                     log_event("update_progress", "success", f"{count} rows updated")
-                    st.success(f"✅ {count} status update(s) saved to master sheet.")
+                    st.success(f"✅ {count} status update(s) saved to master sheet and Excel file.")
                 except Exception as e:
                     log_event("update_progress", "error", str(e))
-                    st.error(f"Save failed: {e}")
-        else:
-            st.info("No changes detected.")
-
-    st.markdown("</div>", unsafe_allow_html=True)
+                    st.error(f"Auto-save failed: {e}")
 
 
 # -------------------------------------------------
@@ -682,8 +644,8 @@ def show_autonomous_agent():
 
         # Last run detail card
         if last_entry:
-            st.markdown("<div class='app-card' style='margin-top:1.25rem'>", unsafe_allow_html=True)
-            st.markdown("#### Last Run Report", unsafe_allow_html=True)
+            st.divider()
+            st.markdown("#### Last Run Report")
 
             ts = datetime.fromisoformat(last_entry["timestamp"]).strftime("%Y-%m-%d %H:%M:%S UTC")
             trig = last_entry.get("triggered_by", "?").capitalize()
@@ -699,20 +661,25 @@ def show_autonomous_agent():
             cols[2].metric("Files Processed", last_entry.get("files_processed", 0))
             cols[3].metric("Rows Added",      last_entry.get("rows_added", 0))
 
-            st.markdown(f"**Status:** {status_label}")
-            st.markdown(f"**Message:** {last_entry.get('message', '—')}")
+            st.write(f"**Status:** {status_label}")
+            st.write(f"**Message:** {last_entry.get('message', '—')}")
 
             pf = last_entry.get("processed_files", [])
             if pf:
-                st.markdown("**Files in this run:** " + ", ".join(pf))
+                st.write("**Files processed in this run:**")
+                pf_rows = []
+                for item in pf:
+                    if isinstance(item, dict):
+                        pf_rows.append({"Source Sheet": item["name"], "Rows Added": item.get("rows_added", 0)})
+                    else:
+                        pf_rows.append({"Source Sheet": item, "Rows Added": "—"})
+                st.dataframe(pd.DataFrame(pf_rows), use_container_width=True, hide_index=True)
 
             errs = last_entry.get("errors", [])
             if errs:
-                st.markdown("**Errors:**")
+                st.write("**Errors:**")
                 for err in errs:
                     st.error(err)
-
-            st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Tab 2: Run History ────────────────────────────────────
     with tab_history:
@@ -721,11 +688,13 @@ def show_autonomous_agent():
         if not run_log:
             st.info("No run history yet. The log will fill up after the first pipeline run.")
         else:
-            rows_for_table = []
-            for entry in run_log:                 # already most-recent-first
+            st.write(f"**{len(run_log)} run(s) recorded** — most recent first")
+            st.write("")
+
+            for entry in run_log:   # already most-recent-first
                 ts = entry.get("timestamp", "")
                 try:
-                    ts_fmt = datetime.fromisoformat(ts).strftime("%Y-%m-%d %H:%M UTC")
+                    ts_fmt = datetime.fromisoformat(ts).strftime("%Y-%m-%d %H:%M:%S UTC")
                 except Exception:
                     ts_fmt = ts
 
@@ -735,29 +704,60 @@ def show_autonomous_agent():
                     "no_new_files": "ℹ️ No New Files",
                 }.get(entry.get("status", ""), "—")
 
-                rows_for_table.append({
-                    "Timestamp (UTC)":  ts_fmt,
-                    "Triggered By":     entry.get("triggered_by", "?").capitalize(),
-                    "Status":           status_icon,
+                trig    = entry.get("triggered_by", "?").capitalize()
+                f_done  = entry.get("files_processed", 0)
+                rows_added = entry.get("rows_added", 0)
+                label   = f"{status_icon}  ·  {ts_fmt}  ·  {trig}  ·  {f_done} file(s)  ·  {rows_added} rows added"
+
+                with st.expander(label, expanded=False):
+                    msg = entry.get("message", "")
+                    if msg:
+                        st.write(f"**Message:** {msg}")
+
+                    pf = entry.get("processed_files", [])
+                    if pf:
+                        st.write("**Source Sheets processed:**")
+                        pf_rows = []
+                        for item in pf:
+                            if isinstance(item, dict):
+                                pf_rows.append({"Source Sheet": item["name"], "Rows Added": item.get("rows_added", 0)})
+                            else:
+                                pf_rows.append({"Source Sheet": item, "Rows Added": "—"})
+                        st.dataframe(pd.DataFrame(pf_rows), use_container_width=True, hide_index=True)
+
+                    errs = entry.get("errors", [])
+                    if errs:
+                        st.write("**Errors:**")
+                        for err in errs:
+                            st.error(err)
+
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Files Checked",    entry.get("files_checked", 0))
+                    c2.metric("Files Processed",  f_done)
+                    c3.metric("Rows Added",       rows_added)
+
+            st.write("")
+            run_log_export = []
+            for entry in run_log:
+                pf = entry.get("processed_files", [])
+                sheets = ", ".join(
+                    item["name"] if isinstance(item, dict) else item for item in pf
+                )
+                run_log_export.append({
+                    "Timestamp (UTC)":  entry.get("timestamp", ""),
+                    "Triggered By":     entry.get("triggered_by", ""),
+                    "Status":           entry.get("status", ""),
                     "Files Checked":    entry.get("files_checked", 0),
                     "Files Processed":  entry.get("files_processed", 0),
                     "Rows Added":       entry.get("rows_added", 0),
-                    "Message":          entry.get("message", "")[:120],
+                    "Source Sheets":    sheets,
+                    "Message":          entry.get("message", ""),
+                    "Errors":           "; ".join(entry.get("errors", [])),
                 })
-
-            df_log = pd.DataFrame(rows_for_table)
-            st.markdown(f"**{len(df_log)} run(s) recorded** (most recent first)")
-            st.dataframe(df_log, use_container_width=True, height=480)
-
             col_dl, _ = st.columns([2, 5])
             with col_dl:
-                csv_bytes = df_log.to_csv(index=False).encode()
-                st.download_button(
-                    "Download Run Log CSV",
-                    csv_bytes,
-                    "run_history.csv",
-                    mime="text/csv",
-                )
+                csv_bytes = pd.DataFrame(run_log_export).to_csv(index=False).encode()
+                st.download_button("Download Run Log CSV", csv_bytes, "run_history.csv", mime="text/csv")
 
     # ── Tab 3: Processed Files ────────────────────────────────
     with tab_files:
@@ -767,35 +767,42 @@ def show_autonomous_agent():
             st.info("No files processed yet.")
         else:
             rows_pf = []
-            for pf in reversed(pf_list):          # most recent first
+            for pf in reversed(pf_list):   # most recent first
                 ts = pf.get("timestamp", "")
                 try:
                     ts_fmt = datetime.fromisoformat(ts).strftime("%Y-%m-%d %H:%M UTC")
                 except Exception:
                     ts_fmt = ts
+                status = pf.get("status", "ok").lower()
                 rows_pf.append({
-                    "Timestamp (UTC)": ts_fmt,
-                    "File Name":       pf.get("name", ""),
-                    "Rows Added":      pf.get("rows_added", 0),
-                    "Status":          pf.get("status", "ok").upper(),
+                    "Processed At (UTC)": ts_fmt,
+                    "Source Sheet":       pf.get("name", ""),
+                    "Rows Added":         pf.get("rows_added", 0),
+                    "Status":             "✅ OK" if status == "ok" else "❌ Error",
                 })
 
             df_pf = pd.DataFrame(rows_pf)
-            st.markdown(
-                f"**{len(df_pf)} files** in the processed-file log "
-                f"(total rows ever added: **{s['total_rows_added']}**)"
+            total_rows = s.get("total_rows_added", 0)
+            c1, c2 = st.columns(2)
+            c1.metric("Total Source Sheets Processed", len(df_pf))
+            c2.metric("Total Rows Ever Added to Master Sheet", total_rows)
+            st.write("")
+            st.dataframe(
+                df_pf,
+                use_container_width=True,
+                hide_index=True,
+                height=500,
+                column_config={
+                    "Processed At (UTC)": st.column_config.TextColumn(width="medium"),
+                    "Source Sheet":       st.column_config.TextColumn(width="large"),
+                    "Rows Added":         st.column_config.NumberColumn(width="small"),
+                    "Status":             st.column_config.TextColumn(width="small"),
+                },
             )
-            st.dataframe(df_pf, use_container_width=True, height=480)
-
             col_dl2, _ = st.columns([2, 5])
             with col_dl2:
                 csv2 = df_pf.to_csv(index=False).encode()
-                st.download_button(
-                    "Download File Log CSV",
-                    csv2,
-                    "processed_files.csv",
-                    mime="text/csv",
-                )
+                st.download_button("Download File Log CSV", csv2, "processed_files.csv", mime="text/csv")
 
     # ── Tab 4: Error Log ──────────────────────────────────────
     with tab_errors:

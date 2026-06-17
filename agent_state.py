@@ -236,7 +236,10 @@ def record_run(triggered_by: str, summary: dict):
         "status":          run_status,
         "message":         summary.get("message", ""),
         "errors":          errors,
-        "processed_files": [f["name"] for f in summary.get("processed_files", [])],
+        "processed_files": [
+            {"name": f["name"], "rows_added": f.get("rows_added", 0)}
+            for f in summary.get("processed_files", [])
+        ],
     }
 
     state["run_log"].append(entry)
