@@ -36,6 +36,24 @@ css_path = Path("assets/style.css")
 if css_path.exists():
     st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
 
+_DARK_CSS = """
+body, .stApp { background-color: #0D1117 !important; color: #E6EDF3 !important; }
+[data-testid="stHeader"] { background-color: #0D1117 !important; }
+[data-testid="stSidebar"] { background-color: #161B22 !important; color: #E6EDF3 !important; }
+[data-testid="stSidebar"] * { color: #E6EDF3 !important; }
+.app-card { background: #161B22 !important; border-color: #30363D !important; color: #E6EDF3 !important; }
+.app-title, .app-subtitle, .feature-title, .feature-desc { color: #E6EDF3 !important; }
+.stTextInput > div > div > input,
+.stTextArea > div > div > textarea,
+.stSelectbox > div > div { background-color: #21262D !important; color: #E6EDF3 !important; border-color: #30363D !important; }
+[data-testid="stDataFrame"] { background-color: #161B22 !important; }
+div[data-testid="metric-container"] { background-color: #161B22; border: 1px solid #30363D; border-radius: 8px; padding: 0.75rem; }
+.stTabs [data-baseweb="tab-list"] { background-color: #161B22; border-bottom-color: #30363D; }
+.stTabs [data-baseweb="tab"] { color: #8B949E !important; }
+.stTabs [aria-selected="true"] { color: white !important; }
+p, label, .stMarkdown, h1, h2, h3, h4 { color: #E6EDF3 !important; }
+.stExpander { background-color: #161B22 !important; border-color: #30363D !important; }
+"""
 
 # -------------------------------------------------
 # AUTH + SESSION STATE
@@ -48,7 +66,7 @@ if "app_initialized" not in st.session_state:
     st.session_state["page"] = "welcome"
     st.session_state["results_ready"] = False
     st.session_state["activity_log"] = []
-    # Pull latest agent state from GitHub Gist (non-blocking — errors are silent)
+    st.session_state["dark_mode"] = False
     try:
         from agent_state import sync_from_gist
         sync_from_gist()
@@ -58,6 +76,27 @@ else:
     st.session_state.setdefault("page", "landing")
     st.session_state.setdefault("results_ready", False)
     st.session_state.setdefault("activity_log", [])
+    st.session_state.setdefault("dark_mode", False)
+
+# Inject dark mode CSS if enabled
+if st.session_state.get("dark_mode"):
+    st.markdown(f"<style>{_DARK_CSS}</style>", unsafe_allow_html=True)
+
+# Sidebar — theme toggle + user info + sign out
+with st.sidebar:
+    st.write(f"**{st.session_state.get('username', '')}**")
+    role_display = "Admin" if st.session_state.get("role") == "admin" else "User"
+    st.caption(f"Role: {role_display}")
+    st.divider()
+    dark_on = st.toggle("🌙 Dark Mode", value=st.session_state.get("dark_mode", False))
+    if dark_on != st.session_state.get("dark_mode", False):
+        st.session_state["dark_mode"] = dark_on
+        st.rerun()
+    st.divider()
+    if st.button("Sign Out", use_container_width=True):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
 
 
 def goto(page: str):
@@ -88,14 +127,8 @@ def verify_password(password: str, hashed: str) -> bool:
 
 
 def load_users():
-    try:
-        with open('users.json', 'r') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return []
-    except Exception as e:
-        st.error(f"Error loading users: {e}")
-        return []
+    from auth import load_users as _gist_load
+    return _gist_load()
 
 
 def save_users(users):
@@ -242,7 +275,10 @@ def show_welcome():
         st.write("")
         st.write("")
         if st.button("Enter Workspace", use_container_width=True, type="primary"):
-            goto("landing")
+            if st.session_state.get("role") == "admin":
+                goto("landing")
+            else:
+                goto("solicitations")
 
 
 # -------------------------------------------------
@@ -250,6 +286,11 @@ def show_welcome():
 # -------------------------------------------------
 def show_landing():
     username = st.session_state.get("username", "User")
+    role     = st.session_state.get("role", "user")
+
+    if role != "admin":
+        goto("solicitations")
+        return
 
     st.title("🦅 Almor LLC — Survey Agent")
     st.write(f"Welcome back, **{username}**")
@@ -391,8 +432,9 @@ def show_solicitations():
 
     col_back, col_refresh, col_spacer = st.columns([2, 2, 6])
     with col_back:
-        if st.button("← Back to Home"):
-            goto("landing")
+        if st.session_state.get("role") == "admin":
+            if st.button("← Back to Home"):
+                goto("landing")
     with col_refresh:
         if st.button("🔄 Refresh from Sheet"):
             st.session_state.pop("sol_data", None)
@@ -824,41 +866,28 @@ def show_autonomous_agent():
         folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "1bSGpFbEW09jAq6pdn1i_WO8RUAa3DPUJ")
         sheet_id  = os.getenv("GOOGLE_SHEETS_ID",       "151jig9_3v-__dHfk7TksitJYONDMOLQV")
 
-        st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-        st.markdown("### How automatic scheduling works")
-        st.markdown(
-            """
-            Nightly runs are powered by **GitHub Actions** — a free service built into
-            every GitHub repository. A workflow file (`.github/workflows/nightly_pipeline.yml`)
-            tells GitHub to run `python pipeline_job.py` at **10:00 PM ET** every night
-            using GitHub's own cloud servers. Your laptop, Streamlit Cloud, and this web app
-            do not need to be running.
-
-            | Component | Role |
-            |---|---|
-            | **GitHub Actions** | Fires the pipeline at 10 PM ET — always on, always free |
-            | **Streamlit Community Cloud** | Hosts this web UI — free, deploys from GitHub |
-            | **GitHub Gist** | Stores run history and processed-file list across all platforms |
-            | **Google Drive** | Source of daily opportunity CSV files |
-            | **Google Sheets** | Master output sheet — rows appended here |
-
-            **De-duplication is automatic.** Every processed Drive file ID is stored in the
-            Gist-backed state. Whether the trigger is GitHub Actions or the manual button,
-            files already processed are always skipped — no double-counting ever.
-            """,
-            unsafe_allow_html=True,
+        st.subheader("How the Agent Works")
+        st.write(
+            "Every night at **10 PM ET**, the agent automatically scans your Google Drive folder "
+            "for new opportunity files. It filters for SDVOSB, SDVOSBC, and SBA set-aside solicitations "
+            "with due dates within the next 14 days, then appends qualifying rows to the master sheet. "
+            "Files already processed are always skipped — no duplicates, ever."
         )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-        st.markdown("### Links")
-        st.markdown(
-            f"- **Drive Folder:** [Open in Drive](https://drive.google.com/drive/folders/{folder_id})\n"
-            f"- **Output Sheet:** [Open in Sheets](https://docs.google.com/spreadsheets/d/{sheet_id})\n"
-            f"- **Filter:** SDVOSB / SDVOSBC / SBA set-asides, due within the next **14 days**\n"
-            f"- **Auto Schedule:** Daily at **10 PM ET**"
+        st.write(
+            "You can also trigger a manual run at any time using the **Run Latest Update** button "
+            "on the Run / Control tab. Manual runs and scheduled runs both write to the same master sheet."
         )
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.write(
+            "Run history and file tracking are saved persistently — the dashboard shows a full record "
+            "of every run even after a server restart."
+        )
+
+        st.divider()
+        st.subheader("Quick Links")
+        st.write(f"- **Google Drive Folder** (source files): [Open Folder](https://drive.google.com/drive/folders/{folder_id})")
+        st.write(f"- **Master Sheet** (output): [Open Sheet](https://docs.google.com/spreadsheets/d/{sheet_id})")
+        st.write("- **Filter:** SDVOSB / SDVOSBC / SBA set-asides · Due within **14 days**")
+        st.write("- **Automatic schedule:** Every night at **10:00 PM ET**")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1056,50 +1085,45 @@ def show_admin():
                     st.warning("Please fill in both username and password.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-        st.markdown("### Current Users")
+        st.subheader("Current Users")
         users = load_users()
         if not users:
             st.info("No users found. Add the first user above.")
         else:
+            st.caption(f"{len(users)} registered user(s) — accounts are permanent and never deleted")
+            st.write("")
             for i, user in enumerate(users):
-                col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
-                with col1:
-                    st.write(f"**{user['username']}**")
-                with col2:
-                    current_role = user['role']
-                    new_role = st.selectbox("Role", ["user", "admin"],
-                                            index=0 if current_role == "user" else 1,
-                                            key=f"role_{i}")
-                    if new_role != current_role:
-                        if st.button("Update Role", key=f"update_{i}"):
-                            success, message = update_user_role(user['username'], new_role)
-                            if success:
-                                st.success(message)
-                                st.rerun()
-                            else:
-                                st.error(message)
-                with col3:
-                    created_date = user.get('created_at', 'Unknown')
-                    if created_date != 'Unknown':
-                        try:
-                            created_date = datetime.datetime.fromisoformat(created_date).strftime("%Y-%m-%d")
-                        except:
-                            created_date = 'Unknown'
-                    st.write(f"Created: {created_date}")
-                with col4:
-                    if user['username'] != st.session_state.get("username"):
-                        if st.button("Delete", key=f"delete_{i}", type="secondary"):
-                            success, message = delete_user(user['username'])
-                            if success:
-                                st.success(message)
-                                st.rerun()
-                            else:
-                                st.error(message)
-                    else:
-                        st.write("*(Current User)*")
-                st.divider()
-        st.markdown("</div>", unsafe_allow_html=True)
+                uname = user['username']
+                current_role = user.get('role', 'user')
+                created = user.get('created_at', '')
+                try:
+                    created = datetime.datetime.fromisoformat(created).strftime("%Y-%m-%d")
+                except Exception:
+                    created = created[:10] if created else "—"
+
+                with st.expander(f"**{uname}** — {current_role.capitalize()}  ·  Added {created}", expanded=False):
+                    c1, c2 = st.columns([2, 3])
+                    with c1:
+                        new_role = st.selectbox(
+                            "Role",
+                            ["user", "admin"],
+                            index=0 if current_role == "user" else 1,
+                            key=f"role_{i}",
+                            help="User: Solicitations only  |  Admin: Full access",
+                        )
+                    with c2:
+                        st.write("")
+                        st.write("")
+                        if uname != st.session_state.get("username"):
+                            if st.button("Save Role Change", key=f"update_{i}", use_container_width=True):
+                                success, message = update_user_role(uname, new_role)
+                                if success:
+                                    st.success(message)
+                                    st.rerun()
+                                else:
+                                    st.error(message)
+                        else:
+                            st.info("This is your own account.")
 
     with tab2:
         logs = st.session_state.activity_log
@@ -1126,6 +1150,12 @@ def show_admin():
 # ROUTER
 # -------------------------------------------------
 page = st.session_state.page
+_role = st.session_state.get("role", "user")
+
+# Regular users can only access welcome, landing (redirects them), and solicitations
+_USER_PAGES = {"welcome", "landing", "solicitations"}
+if _role != "admin" and page not in _USER_PAGES:
+    goto("solicitations")
 
 if page == "welcome":
     show_welcome()
