@@ -484,28 +484,16 @@ def show_solicitations():
     c2.metric("With Status", with_status)
     c3.metric("Pending Review", total - with_status)
 
-    # ── Progress Report filter buttons ────────
+    # ── Progress Report filter pills ────────
     st.write("")
-    st.write("**Filter by Progress Report:**")
     filter_options = ["All"] + [o for o in _PROGRESS_OPTIONS if o]
-    if "sol_filter" not in st.session_state:
-        st.session_state["sol_filter"] = "All"
-
-    f_cols = st.columns(len(filter_options))
-    for i, opt in enumerate(filter_options):
-        with f_cols[i]:
-            is_active = st.session_state["sol_filter"] == opt
-            if st.button(
-                opt if opt != "All" else "📋 All",
-                key=f"flt_{opt}",
-                type="primary" if is_active else "secondary",
-                use_container_width=True,
-            ):
-                st.session_state["sol_filter"] = opt
-                st.rerun()
-
-    # Apply filter
-    active_filter = st.session_state["sol_filter"]
+    active_filter = st.pills(
+        "Filter by Progress Report",
+        options=filter_options,
+        selection_mode="single",
+        default="All",
+        key="sol_filter",
+    ) or "All"
     display_df = df.copy()
     if active_filter != "All" and "Progress Report" in display_df.columns:
         display_df = display_df[display_df["Progress Report"] == active_filter].copy()
