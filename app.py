@@ -430,7 +430,7 @@ def show_solicitations():
     st.title("📋 Solicitations")
     st.caption("Live view of tracked federal opportunities. Progress Report status auto-saves on change.")
 
-    col_back, col_refresh, col_spacer = st.columns([2, 2, 6])
+    col_back, col_refresh, col_status, col_spacer = st.columns([2, 2, 3, 3])
     with col_back:
         if st.session_state.get("role") == "admin":
             if st.button("← Back to Home"):
@@ -439,22 +439,36 @@ def show_solicitations():
         if st.button("🔄 Refresh from Sheet"):
             st.session_state.pop("sol_data", None)
             st.session_state.pop("sol_original_progress", None)
+            st.session_state["sol_status"] = "loading"
             st.rerun()
 
-    # ── Load data ────────────────────────────────
+    # ── Load data (show cached immediately, fetch if missing) ────
+    sheet_status = st.session_state.get("sol_status", "idle")
+
     if "sol_data" not in st.session_state:
-        with st.spinner("Loading from master sheet on Google Drive…"):
-            try:
-                from google_connector import read_master_sheet
-                df = read_master_sheet()
-                st.session_state["sol_data"] = df
-                st.session_state["sol_original_progress"] = (
-                    df["Progress Report"].copy().reset_index(drop=True)
-                    if "Progress Report" in df.columns else None
-                )
-            except Exception as e:
-                st.error(f"Failed to load sheet: {e}")
-                return
+        with col_status:
+            st.info("⏳ Loading sheet…")
+        try:
+            from google_connector import read_master_sheet
+            df = read_master_sheet()
+            st.session_state["sol_data"] = df
+            st.session_state["sol_original_progress"] = (
+                df["Progress Report"].copy().reset_index(drop=True)
+                if "Progress Report" in df.columns else None
+            )
+            st.session_state["sol_status"] = "updated"
+            st.rerun()
+        except Exception as e:
+            st.error(f"Failed to load sheet: {e}")
+            return
+    else:
+        with col_status:
+            if sheet_status == "updated":
+                st.success("✅ Up to date")
+            elif sheet_status == "loading":
+                st.info("⏳ Waiting to update…")
+            else:
+                st.caption("Showing cached data")
 
     df = st.session_state["sol_data"]
 
@@ -470,47 +484,75 @@ def show_solicitations():
     c2.metric("With Status", with_status)
     c3.metric("Pending Review", total - with_status)
 
+    # ── Progress Report filter buttons ────────
+    st.write("")
+    st.write("**Filter by Progress Report:**")
+    filter_options = ["All"] + [o for o in _PROGRESS_OPTIONS if o]
+    if "sol_filter" not in st.session_state:
+        st.session_state["sol_filter"] = "All"
+
+    f_cols = st.columns(len(filter_options))
+    for i, opt in enumerate(filter_options):
+        with f_cols[i]:
+            is_active = st.session_state["sol_filter"] == opt
+            if st.button(
+                opt if opt != "All" else "📋 All",
+                key=f"flt_{opt}",
+                type="primary" if is_active else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state["sol_filter"] = opt
+                st.rerun()
+
+    # Apply filter
+    active_filter = st.session_state["sol_filter"]
+    display_df = df.copy()
+    if active_filter != "All" and "Progress Report" in display_df.columns:
+        display_df = display_df[display_df["Progress Report"] == active_filter].copy()
+    st.caption(f"Showing {len(display_df)} of {total} solicitations" + (f" — filtered by '{active_filter}'" if active_filter != "All" else ""))
+
     st.write("**Tip:** Change any Progress Report dropdown — it saves to the master sheet automatically.")
 
     # ── Data editor ───────────────────────────────
     col_cfg = {}
-    if "Progress Report" in df.columns:
+    if "Progress Report" in display_df.columns:
         col_cfg["Progress Report"] = st.column_config.SelectboxColumn(
             "Progress Report",
             options=_PROGRESS_OPTIONS,
             required=False,
             width="medium",
         )
-    if "UiLink" in df.columns:
+    if "UiLink" in display_df.columns:
         col_cfg["UiLink"] = st.column_config.LinkColumn(
             "Link", display_text="View on SAM.gov", width="small"
         )
-    if "Due Date" in df.columns:
+    if "Due Date" in display_df.columns:
         col_cfg["Due Date"] = st.column_config.DateColumn("Due Date", width="small")
-    if "Solicitation Date" in df.columns:
+    if "Solicitation Date" in display_df.columns:
         col_cfg["Solicitation Date"] = st.column_config.DateColumn("Solicitation Date", width="small")
 
-    editable = ["Progress Report"] if "Progress Report" in df.columns else []
-    disabled  = [c for c in df.columns if c not in editable]
+    editable = ["Progress Report"] if "Progress Report" in display_df.columns else []
+    disabled  = [c for c in display_df.columns if c not in editable]
 
     edited_df = st.data_editor(
-        df,
+        display_df,
         column_config=col_cfg,
         disabled=disabled,
         use_container_width=True,
         num_rows="fixed",
-        key="sol_editor",
+        key=f"sol_editor_{active_filter}",
         height=560,
     )
 
     # ── Auto-save on every rerun if anything changed ──
+    # Use the original df index to get the correct sheet row numbers even when filtered
     original_prog = st.session_state.get("sol_original_progress")
     if original_prog is not None and "Progress Report" in edited_df.columns:
         updates = {}
-        for i, new_val in enumerate(edited_df["Progress Report"]):
-            old_val = original_prog.iloc[i] if i < len(original_prog) else ""
+        for df_idx, new_val in zip(display_df.index, edited_df["Progress Report"]):
+            old_val = original_prog.iloc[df_idx] if df_idx < len(original_prog) else ""
             if str(new_val or "") != str(old_val or ""):
-                updates[i + 2] = str(new_val or "")   # sheet row: header=1, data starts at 2
+                updates[df_idx + 2] = str(new_val or "")  # sheet row: header=1, data starts at 2
 
         if updates:
             with st.spinner(f"Auto-saving {len(updates)} change(s) to master sheet…"):
@@ -676,6 +718,10 @@ def show_autonomous_agent():
                         result_box.success(
                             f"✅ **{rows} rows** appended from: {names}"
                         )
+                        # Clear cached sheet so solicitations reloads fresh data
+                        st.session_state.pop("sol_data", None)
+                        st.session_state.pop("sol_original_progress", None)
+                        st.session_state["sol_just_updated"] = True
 
                     log_event(
                         "autonomous_pipeline",
@@ -686,6 +732,15 @@ def show_autonomous_agent():
                 except Exception as e:
                     progress_box.empty()
                     result_box.error(f"Pipeline failed: {e}")
+
+        # View solicitations shortcut after a successful run
+        if st.session_state.get("sol_just_updated"):
+            st.write("")
+            _, btn_col, _ = st.columns([2, 3, 2])
+            with btn_col:
+                if st.button("📋 View Updated Solicitations →", use_container_width=True, type="primary"):
+                    st.session_state.pop("sol_just_updated", None)
+                    goto("solicitations")
 
         # Last run detail card
         if last_entry:
