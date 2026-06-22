@@ -655,7 +655,7 @@ def show_autonomous_agent():
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
-        col_btn, col_reset, col_dv = st.columns([3, 2, 2])
+        col_btn, col_reset, col_dv, col_sol = st.columns([3, 2, 2, 2])
         with col_btn:
             run_now = st.button("▶ Run Latest Update", type="primary", use_container_width=True)
         with col_reset:
@@ -668,6 +668,10 @@ def show_autonomous_agent():
                 "Apply Dropdown to Sheet", type="secondary", use_container_width=True,
                 help="Re-applies the Progress Report dropdown validation to the master sheet."
             )
+        with col_sol:
+            if st.button("📋 View Solicitations", type="secondary", use_container_width=True,
+                         help="Go to the Solicitations sheet"):
+                goto("solicitations")
 
         if reset_btn:
             reset_state()
@@ -705,6 +709,7 @@ def show_autonomous_agent():
                         )
                     elif summary["files_processed"] == 0:
                         result_box.info(f"ℹ️ {summary.get('message', 'No new files to process.')}")
+                        st.session_state["sol_just_updated"] = True
                     else:
                         names = ", ".join(
                             f["name"] for f in summary.get("processed_files", [])
