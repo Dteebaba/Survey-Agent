@@ -362,73 +362,219 @@ def show_training():
 
 
 # -------------------------------------------------
-# OPERATIONS PAGE  (formerly "Home")
+# OPERATIONS PAGE
 # -------------------------------------------------
-def show_operations():
-    st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
+_OPS_CSS = """
+<style>
+/* ── Operations page header ── */
+.ops-header {
+    margin-bottom: 0.25rem;
+}
+.ops-header-title {
+    font-size: 2rem;
+    font-weight: 900;
+    color: #FFFFFF;
+    letter-spacing: 0.02em;
+    margin: 0;
+}
+.ops-header-sub {
+    color: rgba(255,255,255,0.45);
+    font-size: 0.9rem;
+    margin: 0.3rem 0 0;
+}
+
+/* ── Card shell ── */
+.ops-card {
+    background: linear-gradient(160deg, #1C2A3E 0%, #111827 100%);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 20px;
+    padding: 1.8rem 1.6rem 0.8rem;
+    min-height: 210px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+.ops-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 20px 48px rgba(0,0,0,0.45);
+    border-color: rgba(255,255,255,0.18);
+}
+
+/* ── Coloured top accent bar ── */
+.ops-card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    border-radius: 20px 20px 0 0;
+}
+.ops-card.blue::before   { background: linear-gradient(90deg, #3B82F6, #60A5FA); }
+.ops-card.purple::before { background: linear-gradient(90deg, #8B5CF6, #A78BFA); }
+.ops-card.green::before  { background: linear-gradient(90deg, #10B981, #34D399); }
+.ops-card.amber::before  { background: linear-gradient(90deg, #F59E0B, #FCD34D); }
+.ops-card.red::before    { background: linear-gradient(90deg, #EF4444, #F87171); }
+
+/* ── Soft glow blob in card corner ── */
+.ops-card::after {
+    content: "";
+    position: absolute;
+    width: 120px; height: 120px;
+    border-radius: 50%;
+    bottom: -30px; right: -30px;
+    opacity: 0.07;
+    filter: blur(30px);
+}
+.ops-card.blue::after   { background: #3B82F6; }
+.ops-card.purple::after { background: #8B5CF6; }
+.ops-card.green::after  { background: #10B981; }
+.ops-card.amber::after  { background: #F59E0B; }
+.ops-card.red::after    { background: #EF4444; }
+
+/* ── Icon badge ── */
+.ops-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px; height: 52px;
+    border-radius: 14px;
+    font-size: 1.6rem;
+    margin-bottom: 1rem;
+}
+.ops-card.blue   .ops-icon { background: rgba(59,130,246,0.15); }
+.ops-card.purple .ops-icon { background: rgba(139,92,246,0.15); }
+.ops-card.green  .ops-icon { background: rgba(16,185,129,0.15); }
+.ops-card.amber  .ops-icon { background: rgba(245,158,11,0.15); }
+.ops-card.red    .ops-icon { background: rgba(239,68,68,0.15); }
+
+/* ── Card text ── */
+.ops-card-title {
+    color: #FFFFFF;
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin: 0 0 0.4rem;
+    letter-spacing: 0.01em;
+}
+.ops-card-desc {
+    color: rgba(255,255,255,0.45);
+    font-size: 0.8rem;
+    line-height: 1.55;
+    margin: 0 0 1.1rem;
+}
+
+/* ── Card launch buttons ── */
+div[data-testid="stButton"] > button[kind="secondary"] {
+    background: rgba(255,255,255,0.06) !important;
+    color: rgba(255,255,255,0.8) !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    border-radius: 10px !important;
+    font-size: 0.82rem !important;
+    font-weight: 600 !important;
+    padding: 0.45rem 1rem !important;
+    transition: all 0.2s !important;
+}
+div[data-testid="stButton"] > button[kind="secondary"]:hover {
+    background: rgba(255,255,255,0.12) !important;
+    border-color: rgba(255,255,255,0.25) !important;
+    color: #FFFFFF !important;
+}
+</style>
+"""
+
+
+def _ops_card(color: str, icon: str, title: str, desc: str):
     st.markdown(
-        """
-        <div class='app-card'>
-            <div class='app-title'>Operations</div>
-            <div class='app-subtitle'>AI-powered tools for managing federal opportunity spreadsheets.</div>
+        f"""
+        <div class="ops-card {color}">
+            <div class="ops-icon">{icon}</div>
+            <div class="ops-card-title">{title}</div>
+            <div class="ops-card-desc">{desc}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    if st.button("← Back to Home"):
-        goto("landing")
 
-    st.markdown("<div class='feature-grid'>", unsafe_allow_html=True)
+def show_operations():
+    st.markdown(_OPS_CSS, unsafe_allow_html=True)
 
-    st.markdown(
-        """<div class='feature-card'><div class='feature-title'>Autonomous Agent</div>
-        <div class='feature-desc'>Auto-scan Drive for the latest file, filter SDVOSB/SBA opps due in 14 days, append to master sheet.</div>""",
-        unsafe_allow_html=True,
-    )
-    if st.button("Open Autonomous Agent"):
-        goto("autonomous")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown(
-        """<div class='feature-card'><div class='feature-title'>Document Assistant</div>
-        <div class='feature-desc'>Upload data, normalize it, and apply AI filters.</div>""",
-        unsafe_allow_html=True,
-    )
-    if st.button("Open Document Assistant"):
-        goto("survey")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown(
-        """<div class='feature-card'><div class='feature-title'>Training</div>
-        <div class='feature-desc'>Watch tutorials and learn how to use SAM.gov & AI tools.</div>""",
-        unsafe_allow_html=True,
-    )
-    if st.button("View Training"):
-        goto("training")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown(
-        """<div class='feature-card'><div class='feature-title'>AI Tools</div>
-        <div class='feature-desc'>Use specialized AI tools to analyze federal opportunities.</div>""",
-        unsafe_allow_html=True,
-    )
-    if st.button("Open Tools"):
-        goto("tools")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    if st.session_state.get("role") == "admin":
+    # ── Header ────────────────────────────────────
+    hdr, back_col = st.columns([5, 1])
+    with hdr:
         st.markdown(
-            """<div class='feature-card'><div class='feature-title'>Admin Console</div>
-            <div class='feature-desc'>Manage users and view system activity.</div>""",
+            """
+            <div class="ops-header">
+                <p class="ops-header-title">Operations</p>
+                <p class="ops-header-sub">
+                    AI-powered tools for managing federal opportunity intelligence.
+                </p>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
-        if st.button("Open Admin Console"):
-            goto("admin")
-        st.markdown("</div>", unsafe_allow_html=True)
+    with back_col:
+        st.write("")
+        if st.button("← Home", use_container_width=True):
+            goto("landing")
 
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.write("")
+
+    # ── Row 1: three main tools ───────────────────
+    c1, c2, c3 = st.columns(3, gap="medium")
+
+    with c1:
+        _ops_card(
+            "blue", "🤖",
+            "Autonomous Agent",
+            "Nightly Drive scan — filters SDVOSB/SBA opportunities and appends new rows to the master sheet automatically.",
+        )
+        if st.button("Launch →", key="op_autonomous", use_container_width=True):
+            goto("autonomous")
+
+    with c2:
+        _ops_card(
+            "purple", "📄",
+            "Document Assistant",
+            "Upload a raw SAM.gov export, normalize columns, apply AI filters, and download a clean output file.",
+        )
+        if st.button("Launch →", key="op_survey", use_container_width=True):
+            goto("survey")
+
+    with c3:
+        _ops_card(
+            "green", "🎓",
+            "Training",
+            "Step-by-step tutorials on SAM.gov searches, set-aside codes, and how to get the most from every tool.",
+        )
+        if st.button("Launch →", key="op_training", use_container_width=True):
+            goto("training")
+
+    st.write("")
+
+    # ── Row 2: remaining tools ────────────────────
+    is_admin = st.session_state.get("role") == "admin"
+    if is_admin:
+        c4, c5, c6 = st.columns(3, gap="medium")
+    else:
+        c4, _, _ = st.columns(3, gap="medium")
+
+    with c4:
+        _ops_card(
+            "amber", "🧠",
+            "AI Tools",
+            "Use specialized AI assistants to score, compare, and summarise federal opportunities in seconds.",
+        )
+        if st.button("Launch →", key="op_tools", use_container_width=True):
+            goto("tools")
+
+    if is_admin:
+        with c5:
+            _ops_card(
+                "red", "⚙️",
+                "Admin Console",
+                "Create and manage user accounts, assign roles, and monitor system activity logs.",
+            )
+            if st.button("Launch →", key="op_admin", use_container_width=True):
+                goto("admin")
 
 
 # -------------------------------------------------
