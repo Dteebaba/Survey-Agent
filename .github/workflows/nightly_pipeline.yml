@@ -42,8 +42,6 @@ jobs:
           GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
           GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
           GIST_ID: ${{ secrets.GIST_ID }}
-          # GH_TOKEN is your Personal Access Token with gist scope.
-          # Mapped to GITHUB_TOKEN so existing code (auth.py, agent_state.py)
-          # can read it via os.getenv("GITHUB_TOKEN").
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python pipeline_job.py
