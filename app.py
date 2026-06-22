@@ -362,6 +362,15 @@ def show_operations():
     st.markdown("<div class='feature-grid'>", unsafe_allow_html=True)
 
     st.markdown(
+        """<div class='feature-card'><div class='feature-title'>Autonomous Agent</div>
+        <div class='feature-desc'>Auto-scan Drive for the latest file, filter SDVOSB/SBA opps due in 14 days, append to master sheet.</div>""",
+        unsafe_allow_html=True,
+    )
+    if st.button("Open Autonomous Agent"):
+        goto("autonomous")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown(
         """<div class='feature-card'><div class='feature-title'>Document Assistant</div>
         <div class='feature-desc'>Upload data, normalize it, and apply AI filters.</div>""",
         unsafe_allow_html=True,
@@ -386,15 +395,6 @@ def show_operations():
     )
     if st.button("Open Tools"):
         goto("tools")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown(
-        """<div class='feature-card'><div class='feature-title'>Autonomous Agent</div>
-        <div class='feature-desc'>Auto-scan Drive for the latest file, filter SDVOSB/SBA opps due in 14 days, append to master sheet.</div>""",
-        unsafe_allow_html=True,
-    )
-    if st.button("Open Autonomous Agent"):
-        goto("autonomous")
     st.markdown("</div>", unsafe_allow_html=True)
 
     if st.session_state.get("role") == "admin":
@@ -582,8 +582,12 @@ def show_autonomous_agent():
         last_run_label = "Never"
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Last Run",              last_run_label)
-    c2.metric("Last File Processed",   _fmt(s["last_file_processed"]))
+    with c1:
+        st.caption("Last Run")
+        st.write(last_run_label)
+    with c2:
+        st.caption("Last File Processed")
+        st.write(_fmt(s["last_file_processed"]))
     c3.metric("Total Files Processed", s["total_files_processed"])
     c4.metric("Total Rows Added",      s["total_rows_added"])
 
