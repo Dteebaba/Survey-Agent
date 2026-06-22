@@ -3,6 +3,67 @@ import json
 import hashlib
 import requests
 import os
+from datetime import datetime, timedelta
+
+try:
+    import extra_streamlit_components as stx
+    _COOKIES_AVAILABLE = True
+except ImportError:
+    _COOKIES_AVAILABLE = False
+
+_SESSION_COOKIE   = "almor_session"
+_TIMEOUT_MINUTES  = 10
+
+
+# ── Cookie helpers ────────────────────────────────────────────────────────────
+
+def _cm():
+    """Return a CookieManager instance (one per Streamlit session via key)."""
+    if not _COOKIES_AVAILABLE:
+        return None
+    return stx.CookieManager(key="almor_auth_cm")
+
+
+def _pack_session(username: str, role: str) -> str:
+    return json.dumps({
+        "u": username,
+        "r": role,
+        "t": datetime.utcnow().isoformat(),
+    })
+
+
+def _unpack_session(raw: str):
+    """Return (username, role) or (None, None) if expired or invalid."""
+    try:
+        d = json.loads(raw)
+        age = (datetime.utcnow() - datetime.fromisoformat(d["t"])).total_seconds()
+        if age > _TIMEOUT_MINUTES * 60:
+            return None, None
+        return d["u"], d["r"]
+    except Exception:
+        return None, None
+
+
+def _set_session_cookie(cm, username: str, role: str):
+    try:
+        cm.set(
+            _SESSION_COOKIE,
+            _pack_session(username, role),
+            expires_at=datetime.now() + timedelta(minutes=_TIMEOUT_MINUTES),
+            key="set_sc",
+        )
+    except Exception:
+        pass
+
+
+def clear_auth_cookie():
+    """Delete the session cookie — call on sign-out."""
+    cm = _cm()
+    if cm:
+        try:
+            cm.delete(_SESSION_COOKIE, key="del_sc")
+        except Exception:
+            pass
 
 
 def get_gist_config():
@@ -278,9 +339,31 @@ _LOGIN_FOOTER = """
 
 
 def check_access():
-    """Username/password login gate with a modern, branded UI."""
+    """Username/password login gate with cookie-based session persistence."""
+    cm = _cm()
+
+    # ── Already authenticated this session ─────────────────────────────────
     if st.session_state.get("authenticated"):
+        # Refresh cookie on every page interaction to extend the 10-min window
+        if cm:
+            _set_session_cookie(cm, st.session_state["username"], st.session_state["role"])
         return
+
+    # ── Try to restore from cookie (survives tab close / refresh) ──────────
+    if cm:
+        try:
+            raw = cm.get(_SESSION_COOKIE)
+            if raw:
+                username, role = _unpack_session(raw)
+                if username:
+                    st.session_state["authenticated"] = True
+                    st.session_state["username"]      = username
+                    st.session_state["role"]          = role
+                    _set_session_cookie(cm, username, role)
+                    st.rerun()
+                    return
+        except Exception:
+            pass  # cookie unreadable — fall through to login form
 
     st.markdown(_LOGIN_CSS, unsafe_allow_html=True)
 
@@ -315,6 +398,8 @@ def check_access():
             st.session_state["authenticated"] = True
             st.session_state["role"]          = user_found["role"]
             st.session_state["username"]      = user_found["username"]
+            if cm:
+                _set_session_cookie(cm, user_found["username"], user_found["role"])
             st.rerun()
         else:
             with card:

@@ -104,6 +104,8 @@ with st.sidebar:
         st.rerun()
     st.divider()
     if st.button("Sign Out", use_container_width=True):
+        from auth import clear_auth_cookie
+        clear_auth_cookie()
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()

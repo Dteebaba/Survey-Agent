@@ -8,3 +8,4 @@ requests
 google-generativeai
 google-auth
 apscheduler==3.10.4
+extra-streamlit-components
