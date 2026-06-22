@@ -1,6 +1,7 @@
 import datetime
 import json
 import hashlib
+import threading
 from pathlib import Path
 import streamlit as st
 
@@ -435,9 +436,55 @@ _PROGRESS_OPTIONS = [
 ]
 
 
+def _purge_expired(df):
+    """Identify rows where Due Date is 5+ days past and Progress Report is empty.
+    Returns (cleaned_df, list_of_sheet_row_numbers_to_delete).
+    Sheet row numbers are 1-indexed with row 1 = header."""
+    import pandas as pd
+    from datetime import date, timedelta
+
+    if "Due Date" not in df.columns:
+        return df, []
+
+    cutoff = date.today() - timedelta(days=5)
+    drop_positions = []
+
+    for pos in range(len(df)):
+        row = df.iloc[pos]
+        if str(row.get("Progress Report", "") or "").strip():
+            continue  # has a status — keep it
+        due = row.get("Due Date")
+        if due is None:
+            continue
+        try:
+            if pd.to_datetime(due).date() < cutoff:
+                drop_positions.append(pos)
+        except Exception:
+            pass
+
+    if not drop_positions:
+        return df, []
+
+    # +2: row 1 is the header; iloc pos 0 → sheet row 2
+    sheet_rows = [pos + 2 for pos in drop_positions]
+    cleaned = df.drop(df.index[drop_positions]).reset_index(drop=True)
+    return cleaned, sheet_rows
+
+
 def show_solicitations():
     st.title("📋 Solicitations")
     st.caption("Live view of tracked federal opportunities. Progress Report status auto-saves on change.")
+
+    # Report any completed background save from the previous interaction
+    _pending = st.session_state.get("_sol_save")
+    if _pending:
+        _t, _r = _pending
+        if not _t.is_alive():
+            st.session_state.pop("_sol_save", None)
+            if _r.get("ok"):
+                st.toast(f"✅ {_r['count']} status(es) saved to sheet", icon="✅")
+            elif _r.get("error"):
+                st.toast(f"❌ Save failed: {_r['error']}", icon="❌")
 
     col_back, col_refresh, col_status, col_spacer = st.columns([2, 2, 3, 3])
     with col_back:
@@ -460,6 +507,20 @@ def show_solicitations():
         status_placeholder.info("⏳ Loading sheet…")
         try:
             df = _fetch_solicitations()
+
+            # Auto-purge rows that are 5+ days past due with no status
+            df, expired_rows = _purge_expired(df)
+            if expired_rows:
+                def _bg_delete(rows=expired_rows):
+                    try:
+                        from google_connector import delete_expired_rows
+                        delete_expired_rows(rows)
+                        _fetch_solicitations.clear()
+                    except Exception:
+                        pass
+                threading.Thread(target=_bg_delete, daemon=True).start()
+                st.toast(f"🗑️ Auto-removed {len(expired_rows)} expired row(s) with no status")
+
             st.session_state["sol_data"] = df
             st.session_state["sol_original_progress"] = (
                 df["Progress Report"].copy().reset_index(drop=True)
@@ -572,27 +633,31 @@ def show_solicitations():
                 updates[df_idx + 2] = str(new_val or "")  # sheet row: header=1, data starts at 2
 
         if updates:
-            with st.spinner(f"Saving {len(updates)} change(s)…"):
+            # Optimistic update — apply changes locally so user sees result immediately
+            full_df = st.session_state["sol_data"].copy()
+            for df_idx, new_val in zip(display_df.index, edited_df["Progress Report"]):
+                full_df.at[df_idx, "Progress Report"] = str(new_val or "")
+            st.session_state["sol_data"] = full_df
+            st.session_state["sol_original_progress"] = (
+                full_df["Progress Report"].copy().reset_index(drop=True)
+            )
+
+            # Fire Drive write in background — user can keep editing
+            _save_result: dict = {}
+
+            def _bg_save(u=updates, r=_save_result):
                 try:
                     from google_connector import update_progress_reports
-                    count = update_progress_reports(updates)
+                    r["count"] = update_progress_reports(u)
+                    r["ok"] = True
+                except Exception as exc:
+                    r["error"] = str(exc)
 
-                    # Merge changes back into the FULL dataframe (not just the filtered view)
-                    # so switching filters or refreshing doesn't lose the edits
-                    full_df = st.session_state["sol_data"].copy()
-                    for df_idx, new_val in zip(display_df.index, edited_df["Progress Report"]):
-                        full_df.at[df_idx, "Progress Report"] = str(new_val or "")
-                    st.session_state["sol_data"] = full_df
-                    st.session_state["sol_original_progress"] = (
-                        full_df["Progress Report"].copy().reset_index(drop=True)
-                    )
-                    st.session_state["sol_status"] = "updated"
-
-                    log_event("update_progress", "success", f"{count} rows updated")
-                    st.success(f"✅ {count} status update(s) saved.")
-                except Exception as e:
-                    log_event("update_progress", "error", str(e))
-                    st.error(f"Save failed: {e}")
+            _t = threading.Thread(target=_bg_save, daemon=True)
+            _t.start()
+            st.session_state["_sol_save"] = (_t, _save_result)
+            log_event("update_progress", "pending", f"{len(updates)} rows queued")
+            st.toast("💾 Saving…")
 
 
 # -------------------------------------------------

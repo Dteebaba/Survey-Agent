@@ -307,6 +307,18 @@ def read_master_sheet():
     return df
 
 
+def delete_expired_rows(sheet_row_numbers: list) -> int:
+    """Delete the given 1-indexed sheet row numbers from the master sheet and re-upload."""
+    if not sheet_row_numbers:
+        return 0
+    wb, ws, _ = _open_master()
+    for row_num in sorted(sheet_row_numbers, reverse=True):
+        ws.delete_rows(row_num)
+    _save_and_upload(wb)
+    log.info(f"Deleted {len(sheet_row_numbers)} expired row(s) from master sheet")
+    return len(sheet_row_numbers)
+
+
 def update_progress_reports(row_updates: dict) -> int:
     """
     Write Progress Report values back to the master sheet.
