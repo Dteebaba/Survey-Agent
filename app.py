@@ -471,6 +471,146 @@ def _purge_expired(df):
     return cleaned, sheet_rows
 
 
+@st.fragment
+def _sol_filter_and_table(df):
+    """Fragment: only this section reruns when the filter pill is changed."""
+    total = len(df)
+    has_prog = "Progress Report" in df.columns
+
+    # ── Per-category counts ───────────────────
+    cat_counts = {}
+    if has_prog:
+        for opt in _PROGRESS_OPTIONS:
+            if opt:
+                cat_counts[opt] = int((df["Progress Report"] == opt).sum())
+    pending = int((df["Progress Report"] == "").sum()) if has_prog else total
+
+    # Metrics row: Total + Pending + one cell per status category
+    stat_labels = ["Total", "Pending Review"] + list(cat_counts.keys())
+    stat_values = [total, pending] + list(cat_counts.values())
+    stat_cols = st.columns(len(stat_labels))
+    for col, label, val in zip(stat_cols, stat_labels, stat_values):
+        col.metric(label, val)
+
+    # ── Filter pills — label includes live count ──
+    pill_options = ["All"] + [
+        f"{opt}  ({cat_counts.get(opt, 0)})" for opt in _PROGRESS_OPTIONS if opt
+    ]
+    active_pill = st.pills(
+        "Filter by Progress Report",
+        options=pill_options,
+        selection_mode="single",
+        default="All",
+        key="sol_filter",
+    ) or "All"
+
+    # Strip the count suffix to get the real status string for filtering
+    active_filter = active_pill.split("  (")[0] if active_pill != "All" else "All"
+
+    display_df = df.copy()
+    if active_filter != "All" and has_prog:
+        display_df = display_df[df["Progress Report"] == active_filter].reset_index(drop=False)
+    else:
+        display_df = display_df.reset_index(drop=False)
+
+    # Keep original df index so sheet row numbers stay correct
+    orig_index = display_df["index"].tolist()
+    display_df = display_df.drop(columns=["index"])
+
+    st.caption(
+        f"Showing {len(display_df)} of {total} solicitations"
+        + (f" — {active_filter}" if active_filter != "All" else "")
+    )
+    st.caption("Change any Progress Report dropdown — it saves to the master sheet automatically.")
+
+    # ── Column config ─────────────────────────
+    _cols = display_df.columns.tolist()
+    col_cfg = {}
+    if "Solicitation Number" in _cols:
+        col_cfg["Solicitation Number"] = st.column_config.TextColumn("Sol. #", width=120)
+    if "Title" in _cols:
+        col_cfg["Title"] = st.column_config.TextColumn("Title", width=220)
+    if "Agency" in _cols:
+        col_cfg["Agency"] = st.column_config.TextColumn("Agency", width=140)
+    if "Solicitation Date" in _cols:
+        col_cfg["Solicitation Date"] = st.column_config.DateColumn("Posted", width=90)
+    if "Due Date" in _cols:
+        col_cfg["Due Date"] = st.column_config.DateColumn("Due Date", width=90)
+    if "Opportunity Type" in _cols:
+        col_cfg["Opportunity Type"] = st.column_config.TextColumn("Type", width=110)
+    if "Normalized Set Aside" in _cols:
+        col_cfg["Normalized Set Aside"] = st.column_config.TextColumn("Set Aside", width=140)
+    if "UiLink" in _cols:
+        col_cfg["UiLink"] = st.column_config.LinkColumn("Link", display_text="SAM.gov", width=75)
+    if "Progress Report" in _cols:
+        col_cfg["Progress Report"] = st.column_config.SelectboxColumn(
+            "Progress Report",
+            options=_PROGRESS_OPTIONS,
+            required=False,
+            width=160,
+        )
+    if "Award Date" in _cols:
+        col_cfg["Award Date"] = st.column_config.DateColumn("Award", width=90)
+
+    _preferred_order = [
+        "Solicitation Number", "Title", "Agency", "Solicitation Date",
+        "Due Date", "Opportunity Type", "Normalized Set Aside",
+        "Progress Report", "UiLink", "Award Date",
+    ]
+    column_order = [c for c in _preferred_order if c in _cols]
+    editable  = ["Progress Report"] if "Progress Report" in _cols else []
+    disabled  = [c for c in _cols if c not in editable]
+
+    edited_df = st.data_editor(
+        display_df,
+        column_config=col_cfg,
+        column_order=column_order,
+        disabled=disabled,
+        hide_index=True,
+        use_container_width=True,
+        num_rows="fixed",
+        key=f"sol_editor_{active_filter}",
+        height=560,
+    )
+
+    # ── Auto-save on change ───────────────────
+    original_prog = st.session_state.get("sol_original_progress")
+    if original_prog is not None and "Progress Report" in edited_df.columns:
+        updates = {}
+        for pos, (df_idx, new_val) in enumerate(
+            zip(orig_index, edited_df["Progress Report"])
+        ):
+            old_val = original_prog.iloc[df_idx] if df_idx < len(original_prog) else ""
+            if str(new_val or "") != str(old_val or ""):
+                updates[df_idx + 2] = str(new_val or "")
+
+        if updates:
+            # Optimistic update — visible immediately, no spinner
+            full_df = st.session_state["sol_data"].copy()
+            for df_idx, new_val in zip(orig_index, edited_df["Progress Report"]):
+                full_df.at[df_idx, "Progress Report"] = str(new_val or "")
+            st.session_state["sol_data"] = full_df
+            st.session_state["sol_original_progress"] = (
+                full_df["Progress Report"].copy().reset_index(drop=True)
+            )
+
+            _save_result: dict = {}
+
+            def _bg_save(u=updates, r=_save_result):
+                try:
+                    from google_connector import update_progress_reports
+                    r["count"] = update_progress_reports(u)
+                    r["ok"] = True
+                except Exception as exc:
+                    r["error"] = str(exc)
+
+            _t = threading.Thread(target=_bg_save, daemon=True)
+            _t.start()
+            st.session_state["_sol_save"] = (_t, _save_result)
+            log_event("update_progress", "pending", f"{len(updates)} rows queued")
+            st.toast("💾 Saving…")
+
+
 def show_solicitations():
     st.title("📋 Solicitations")
     st.caption("Live view of tracked federal opportunities. Progress Report status auto-saves on change.")
@@ -546,118 +686,7 @@ def show_solicitations():
         st.info("No solicitations found in the master sheet yet.")
         return
 
-    # ── Stats ─────────────────────────────────
-    total = len(df)
-    with_status = int((df["Progress Report"] != "").sum()) if "Progress Report" in df.columns else 0
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total Solicitations", total)
-    c2.metric("With Status", with_status)
-    c3.metric("Pending Review", total - with_status)
-
-    # ── Progress Report filter pills ────────
-    st.write("")
-    filter_options = ["All"] + [o for o in _PROGRESS_OPTIONS if o]
-    active_filter = st.pills(
-        "Filter by Progress Report",
-        options=filter_options,
-        selection_mode="single",
-        default="All",
-        key="sol_filter",
-    ) or "All"
-    display_df = df.copy()
-    if active_filter != "All" and "Progress Report" in display_df.columns:
-        display_df = display_df[display_df["Progress Report"] == active_filter].copy()
-    st.caption(f"Showing {len(display_df)} of {total} solicitations" + (f" — filtered by '{active_filter}'" if active_filter != "All" else ""))
-
-    st.caption("Change any Progress Report dropdown — it saves to the master sheet automatically.")
-
-    # ── Column config — explicit widths so all columns fit on one screen ──
-    _cols = display_df.columns.tolist()
-    col_cfg = {}
-    if "Solicitation Number" in _cols:
-        col_cfg["Solicitation Number"] = st.column_config.TextColumn("Sol. #", width=120)
-    if "Title" in _cols:
-        col_cfg["Title"] = st.column_config.TextColumn("Title", width=220)
-    if "Agency" in _cols:
-        col_cfg["Agency"] = st.column_config.TextColumn("Agency", width=140)
-    if "Solicitation Date" in _cols:
-        col_cfg["Solicitation Date"] = st.column_config.DateColumn("Posted", width=90)
-    if "Due Date" in _cols:
-        col_cfg["Due Date"] = st.column_config.DateColumn("Due Date", width=90)
-    if "Opportunity Type" in _cols:
-        col_cfg["Opportunity Type"] = st.column_config.TextColumn("Type", width=110)
-    if "Normalized Set Aside" in _cols:
-        col_cfg["Normalized Set Aside"] = st.column_config.TextColumn("Set Aside", width=140)
-    if "UiLink" in _cols:
-        col_cfg["UiLink"] = st.column_config.LinkColumn("Link", display_text="SAM.gov", width=75)
-    if "Progress Report" in _cols:
-        col_cfg["Progress Report"] = st.column_config.SelectboxColumn(
-            "Progress Report",
-            options=_PROGRESS_OPTIONS,
-            required=False,
-            width=160,
-        )
-    if "Award Date" in _cols:
-        col_cfg["Award Date"] = st.column_config.DateColumn("Award", width=90)
-
-    # Preferred display order — only include columns that exist
-    _preferred_order = [
-        "Solicitation Number", "Title", "Agency", "Solicitation Date",
-        "Due Date", "Opportunity Type", "Normalized Set Aside",
-        "Progress Report", "UiLink", "Award Date",
-    ]
-    column_order = [c for c in _preferred_order if c in _cols]
-
-    editable = ["Progress Report"] if "Progress Report" in _cols else []
-    disabled  = [c for c in _cols if c not in editable]
-
-    edited_df = st.data_editor(
-        display_df,
-        column_config=col_cfg,
-        column_order=column_order,
-        disabled=disabled,
-        hide_index=True,
-        use_container_width=True,
-        num_rows="fixed",
-        key=f"sol_editor_{active_filter}",
-        height=560,
-    )
-
-    # ── Auto-save on every rerun if anything changed ──
-    original_prog = st.session_state.get("sol_original_progress")
-    if original_prog is not None and "Progress Report" in edited_df.columns:
-        updates = {}
-        for df_idx, new_val in zip(display_df.index, edited_df["Progress Report"]):
-            old_val = original_prog.iloc[df_idx] if df_idx < len(original_prog) else ""
-            if str(new_val or "") != str(old_val or ""):
-                updates[df_idx + 2] = str(new_val or "")  # sheet row: header=1, data starts at 2
-
-        if updates:
-            # Optimistic update — apply changes locally so user sees result immediately
-            full_df = st.session_state["sol_data"].copy()
-            for df_idx, new_val in zip(display_df.index, edited_df["Progress Report"]):
-                full_df.at[df_idx, "Progress Report"] = str(new_val or "")
-            st.session_state["sol_data"] = full_df
-            st.session_state["sol_original_progress"] = (
-                full_df["Progress Report"].copy().reset_index(drop=True)
-            )
-
-            # Fire Drive write in background — user can keep editing
-            _save_result: dict = {}
-
-            def _bg_save(u=updates, r=_save_result):
-                try:
-                    from google_connector import update_progress_reports
-                    r["count"] = update_progress_reports(u)
-                    r["ok"] = True
-                except Exception as exc:
-                    r["error"] = str(exc)
-
-            _t = threading.Thread(target=_bg_save, daemon=True)
-            _t.start()
-            st.session_state["_sol_save"] = (_t, _save_result)
-            log_event("update_progress", "pending", f"{len(updates)} rows queued")
-            st.toast("💾 Saving…")
+    _sol_filter_and_table(df)
 
 
 # -------------------------------------------------
