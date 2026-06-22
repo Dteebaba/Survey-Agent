@@ -97,26 +97,214 @@ def verify_password(password: str, hashed_password: str) -> bool:
         return False
 
 
+_LOGIN_CSS = """
+<style>
+/* ── Hide Streamlit chrome ── */
+#MainMenu, footer, header,
+[data-testid="stToolbar"],
+[data-testid="stDecoration"] { display: none !important; }
+
+/* ── Animated gradient background ── */
+[data-testid="stAppViewContainer"] {
+    background: linear-gradient(-45deg, #0B1120, #112240, #0F3460, #1A1A2E);
+    background-size: 400% 400%;
+    animation: bgShift 14s ease infinite;
+    min-height: 100vh;
+}
+@keyframes bgShift {
+    0%   { background-position: 0%   50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0%   50%; }
+}
+
+/* ── Remove default page padding ── */
+.main .block-container {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    max-width: 100% !important;
+}
+
+/* ── Floating orbs (decorative) ── */
+[data-testid="stAppViewContainer"]::before,
+[data-testid="stAppViewContainer"]::after {
+    content: "";
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.18;
+    pointer-events: none;
+    z-index: 0;
+    animation: floatOrb 10s ease-in-out infinite alternate;
+}
+[data-testid="stAppViewContainer"]::before {
+    width: 500px; height: 500px;
+    background: #1E90FF;
+    top: -100px; left: -100px;
+}
+[data-testid="stAppViewContainer"]::after {
+    width: 400px; height: 400px;
+    background: #C9A227;
+    bottom: -80px; right: -80px;
+    animation-delay: -5s;
+}
+@keyframes floatOrb {
+    from { transform: translate(0, 0) scale(1); }
+    to   { transform: translate(40px, 40px) scale(1.1); }
+}
+
+/* ── Card: the middle column becomes the glass card ── */
+div[data-testid="column"]:nth-child(2) {
+    background: rgba(255, 255, 255, 0.04) !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.10) !important;
+    border-radius: 24px !important;
+    padding: 2.5rem 2rem !important;
+    box-shadow: 0 32px 64px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1) !important;
+    position: relative;
+    z-index: 1;
+    margin-top: 10vh !important;
+}
+
+/* ── Input labels ── */
+div[data-testid="column"]:nth-child(2) .stTextInput label {
+    color: rgba(255,255,255,0.55) !important;
+    font-size: 0.8rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase !important;
+}
+
+/* ── Input fields ── */
+div[data-testid="column"]:nth-child(2) .stTextInput input {
+    background: rgba(255,255,255,0.06) !important;
+    border: 1px solid rgba(255,255,255,0.15) !important;
+    border-radius: 10px !important;
+    color: #FFFFFF !important;
+    font-size: 0.95rem !important;
+    padding: 0.7rem 1rem !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+div[data-testid="column"]:nth-child(2) .stTextInput input:focus {
+    border-color: #C9A227 !important;
+    box-shadow: 0 0 0 3px rgba(201,162,39,0.18) !important;
+    background: rgba(255,255,255,0.09) !important;
+}
+div[data-testid="column"]:nth-child(2) .stTextInput input::placeholder {
+    color: rgba(255,255,255,0.25) !important;
+}
+
+/* ── Sign In button ── */
+div[data-testid="column"]:nth-child(2) .stButton > button {
+    background: linear-gradient(135deg, #C9A227 0%, #E8C547 100%) !important;
+    color: #0B1120 !important;
+    border: none !important;
+    border-radius: 10px !important;
+    padding: 0.75rem 1rem !important;
+    font-weight: 800 !important;
+    font-size: 0.95rem !important;
+    letter-spacing: 0.06em !important;
+    width: 100% !important;
+    transition: all 0.25s ease !important;
+    box-shadow: 0 4px 20px rgba(201,162,39,0.3) !important;
+}
+div[data-testid="column"]:nth-child(2) .stButton > button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 30px rgba(201,162,39,0.5) !important;
+}
+div[data-testid="column"]:nth-child(2) .stButton > button:active {
+    transform: translateY(0) !important;
+}
+
+/* ── Error / success alerts inside card ── */
+div[data-testid="column"]:nth-child(2) .stAlert {
+    border-radius: 10px !important;
+    font-size: 0.85rem !important;
+}
+
+/* ── Divider line ── */
+.login-divider {
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.10);
+    margin: 1.5rem 0;
+}
+</style>
+"""
+
+_LOGIN_BRAND = """
+<div style="text-align:center; margin-bottom:2rem;">
+    <div style="
+        display:inline-flex; align-items:center; justify-content:center;
+        width:72px; height:72px; border-radius:18px;
+        background:linear-gradient(135deg,#1E3A5F,#0F3460);
+        border:2px solid rgba(201,162,39,0.5);
+        box-shadow:0 8px 32px rgba(0,0,0,0.4);
+        font-size:2rem; margin-bottom:1.1rem;">
+        🏛️
+    </div>
+    <h1 style="
+        color:#FFFFFF; font-size:1.85rem; font-weight:900;
+        letter-spacing:0.12em; margin:0 0 0.25rem 0;
+        text-shadow:0 2px 12px rgba(0,0,0,0.4);">
+        ALMOR LLC
+    </h1>
+    <p style="color:rgba(255,255,255,0.45); font-size:0.82rem;
+              margin:0 0 0.9rem 0; letter-spacing:0.04em;">
+        Federal Opportunity Intelligence
+    </p>
+    <span style="
+        display:inline-block;
+        background:rgba(201,162,39,0.12);
+        border:1px solid rgba(201,162,39,0.4);
+        color:#C9A227; font-size:0.65rem; font-weight:700;
+        letter-spacing:0.12em; padding:0.3rem 0.9rem;
+        border-radius:20px; text-transform:uppercase;">
+        ★ Service-Disabled Veteran-Owned
+    </span>
+    <hr class="login-divider" style="margin-top:1.5rem;">
+    <p style="color:rgba(255,255,255,0.35); font-size:0.78rem; margin:0;">
+        Sign in to access your workspace
+    </p>
+</div>
+"""
+
+_LOGIN_FOOTER = """
+<div style="text-align:center; margin-top:1.5rem;">
+    <p style="color:rgba(255,255,255,0.2); font-size:0.7rem; margin:0; letter-spacing:0.04em;">
+        © 2025 Almor LLC · All rights reserved
+    </p>
+</div>
+"""
+
+
 def check_access():
-    """Username/password login gate."""
+    """Username/password login gate with a modern, branded UI."""
     if st.session_state.get("authenticated"):
         return
 
-    st.title("Survey Agent – Sign In")
-    st.write("Please enter your username and password.")
+    st.markdown(_LOGIN_CSS, unsafe_allow_html=True)
 
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    login = st.button("Sign In")
+    # Three-column layout — middle column becomes the glass card
+    _, card, _ = st.columns([1, 1.1, 1])
+
+    with card:
+        st.markdown(_LOGIN_BRAND, unsafe_allow_html=True)
+
+        username = st.text_input("Username", placeholder="Enter your username")
+        password = st.text_input("Password", type="password", placeholder="Enter your password")
+        st.write("")
+        login = st.button("Sign In →", use_container_width=True)
+
+        st.markdown(_LOGIN_FOOTER, unsafe_allow_html=True)
 
     if login:
         if not username or not password:
-            st.error("Please enter both username and password.")
+            with card:
+                st.error("Please enter both username and password.")
             st.stop()
 
         users = load_users()
         user_found = None
-
         for user in users:
             if user['username'].lower() == username.lower():
                 if verify_password(password, user['password']):
@@ -125,12 +313,12 @@ def check_access():
 
         if user_found:
             st.session_state["authenticated"] = True
-            st.session_state["role"] = user_found["role"]
-            st.session_state["username"] = user_found["username"]
-            st.success("Login successful. Loading workspace...")
+            st.session_state["role"]          = user_found["role"]
+            st.session_state["username"]      = user_found["username"]
             st.rerun()
         else:
-            st.error("Invalid username or password.")
+            with card:
+                st.error("Invalid username or password.")
             st.stop()
 
     st.stop()
