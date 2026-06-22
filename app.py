@@ -445,6 +445,20 @@ def show_welcome():
                 goto("solicitations")
         st.markdown('</div>', unsafe_allow_html=True)
 
+        st.write("")
+        st.markdown(
+            "<p style='text-align:center; color:rgba(255,255,255,0.2); font-size:0.75rem; margin:0;'>"
+            "Not you? &nbsp;"
+            "</p>",
+            unsafe_allow_html=True,
+        )
+        if st.button("Sign Out", use_container_width=True, key="welcome_signout"):
+            from auth import clear_auth_cookie
+            clear_auth_cookie()
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+
 
 # -------------------------------------------------
 # LANDING PAGE  (Operations | Solicitations)
@@ -585,13 +599,24 @@ def show_landing():
     """, unsafe_allow_html=True)
 
     # ── Hero header ──────────────────────────────
-    st.markdown(f"""
-    <div class="landing-hero">
-        <p class="landing-greeting">Welcome back, {username}</p>
-        <p class="landing-title">Where would you like to go?</p>
-        <p class="landing-sub">Choose a workspace to get started.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    hdr_col, signout_col = st.columns([5, 1])
+    with hdr_col:
+        st.markdown(f"""
+        <div class="landing-hero">
+            <p class="landing-greeting">Welcome back, {username}</p>
+            <p class="landing-title">Where would you like to go?</p>
+            <p class="landing-sub">Choose a workspace to get started.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with signout_col:
+        st.write("")
+        st.write("")
+        if st.button("Sign Out", use_container_width=True, key="landing_signout"):
+            from auth import clear_auth_cookie
+            clear_auth_cookie()
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
 
     st.write("")
 
