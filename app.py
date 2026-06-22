@@ -283,22 +283,165 @@ def render_external_tools():
 # -------------------------------------------------
 
 def show_welcome():
+    st.markdown("""
+    <style>
+    /* Dark animated background for welcome page main area */
+    [data-testid="stAppViewContainer"] > .main {
+        background: linear-gradient(-45deg, #0B1120, #112240, #0F3460, #1A1A2E);
+        background-size: 400% 400%;
+        animation: welcomeBG 14s ease infinite;
+        min-height: 100vh;
+    }
+    @keyframes welcomeBG {
+        0%   { background-position: 0%   50%; }
+        50%  { background-position: 100% 50%; }
+        100% { background-position: 0%   50%; }
+    }
+
+    /* Floating eagle */
+    .welcome-eagle {
+        font-size: 5rem;
+        display: block;
+        text-align: center;
+        animation: eagleBob 3s ease-in-out infinite;
+        filter: drop-shadow(0 8px 24px rgba(201,162,39,0.4));
+        margin-bottom: 0.5rem;
+    }
+    @keyframes eagleBob {
+        0%,100% { transform: translateY(0px) rotate(-2deg); }
+        50%      { transform: translateY(-14px) rotate(2deg); }
+    }
+
+    /* Brand text entrance */
+    .welcome-brand {
+        text-align: center;
+        animation: fadeInUp 0.8s ease both;
+    }
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(24px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+    .welcome-company {
+        color: #FFFFFF;
+        font-size: 2.2rem;
+        font-weight: 900;
+        letter-spacing: 0.14em;
+        margin: 0;
+        text-shadow: 0 2px 20px rgba(0,0,0,0.5);
+    }
+    .welcome-product {
+        color: #C9A227;
+        font-size: 1.1rem;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        margin: 0.4rem 0 0.2rem;
+    }
+    .welcome-tagline {
+        color: rgba(255,255,255,0.35);
+        font-size: 0.82rem;
+        letter-spacing: 0.06em;
+        margin: 0 0 0.6rem;
+    }
+    .welcome-badge {
+        display: inline-block;
+        background: rgba(201,162,39,0.12);
+        border: 1px solid rgba(201,162,39,0.35);
+        color: #C9A227;
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        padding: 0.28rem 0.85rem;
+        border-radius: 20px;
+        text-transform: uppercase;
+        margin-bottom: 2.2rem;
+    }
+
+    /* Pulsing guide tooltip */
+    .welcome-guide {
+        text-align: center;
+        animation: fadeInUp 0.8s ease 0.6s both;
+        margin-bottom: 0.6rem;
+    }
+    .guide-arrow {
+        display: inline-block;
+        color: rgba(255,255,255,0.5);
+        font-size: 0.8rem;
+        letter-spacing: 0.08em;
+        animation: guidePulse 2s ease-in-out infinite;
+    }
+    .guide-dot {
+        display: inline-block;
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        background: #C9A227;
+        margin-right: 8px;
+        animation: dotPulse 2s ease-in-out infinite;
+        vertical-align: middle;
+    }
+    @keyframes guidePulse {
+        0%,100% { opacity: 0.5; transform: translateY(0); }
+        50%      { opacity: 1;   transform: translateY(4px); }
+    }
+    @keyframes dotPulse {
+        0%,100% { transform: scale(1);    opacity: 0.7; }
+        50%      { transform: scale(1.4); opacity: 1;   }
+    }
+
+    /* Enter button */
+    .welcome-btn-wrap .stButton > button {
+        background: linear-gradient(135deg, #C9A227, #E8C547) !important;
+        color: #0B1120 !important;
+        border: none !important;
+        border-radius: 12px !important;
+        font-weight: 800 !important;
+        font-size: 1rem !important;
+        letter-spacing: 0.06em !important;
+        padding: 0.8rem 2rem !important;
+        box-shadow: 0 6px 28px rgba(201,162,39,0.4) !important;
+        transition: all 0.25s ease !important;
+        animation: fadeInUp 0.8s ease 0.9s both;
+    }
+    .welcome-btn-wrap .stButton > button:hover {
+        transform: translateY(-3px) !important;
+        box-shadow: 0 12px 36px rgba(201,162,39,0.55) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     st.write("")
     st.write("")
-    _, center, _ = st.columns([1, 2, 1])
+    _, center, _ = st.columns([1, 1.4, 1])
     with center:
-        st.title("🦅 Almor LLC")
-        st.caption("SBA Service-Disabled Veteran-Owned Small Business")
-        st.write("")
-        st.subheader("Survey Agent")
-        st.write("Federal Opportunity Intelligence Platform")
-        st.write("")
-        st.write("")
-        if st.button("Enter Workspace", use_container_width=True, type="primary"):
+        # Animated eagle
+        st.markdown('<span class="welcome-eagle">🦅</span>', unsafe_allow_html=True)
+
+        # Brand block
+        st.markdown("""
+        <div class="welcome-brand">
+            <p class="welcome-company">ALMOR LLC</p>
+            <p class="welcome-product">Survey Agent</p>
+            <p class="welcome-tagline">Federal Opportunity Intelligence Platform</p>
+            <span class="welcome-badge">★ SBA Service-Disabled Veteran-Owned</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Pulsing guide
+        st.markdown("""
+        <div class="welcome-guide">
+            <span class="guide-dot"></span>
+            <span class="guide-arrow">click below to enter your workspace ↓</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Enter button
+        st.markdown('<div class="welcome-btn-wrap">', unsafe_allow_html=True)
+        if st.button("Enter Workspace →", use_container_width=True, type="primary"):
             if st.session_state.get("role") == "admin":
                 goto("landing")
             else:
                 goto("solicitations")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 # -------------------------------------------------
@@ -312,25 +455,178 @@ def show_landing():
         goto("solicitations")
         return
 
-    st.title("🦅 Almor LLC — Survey Agent")
-    st.write(f"Welcome back, **{username}**")
-    st.divider()
+    st.markdown("""
+    <style>
+    .landing-hero {
+        padding: 1.8rem 0 0.5rem;
+        animation: fadeInUp 0.6s ease both;
+    }
+    @keyframes fadeInUp {
+        from { opacity:0; transform:translateY(20px); }
+        to   { opacity:1; transform:translateY(0);    }
+    }
+    .landing-greeting {
+        color: rgba(255,255,255,0.4);
+        font-size: 0.85rem;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin: 0 0 0.25rem;
+    }
+    .landing-title {
+        color: #FFFFFF;
+        font-size: 2rem;
+        font-weight: 900;
+        margin: 0 0 0.4rem;
+        letter-spacing: 0.02em;
+    }
+    .landing-sub {
+        color: rgba(255,255,255,0.4);
+        font-size: 0.88rem;
+        margin: 0;
+    }
 
-    col1, col2 = st.columns(2, gap="large")
+    /* Hub cards */
+    .hub-card {
+        background: linear-gradient(155deg, #1C2A3E 0%, #111827 100%);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 22px;
+        padding: 2.4rem 2rem 1.4rem;
+        min-height: 280px;
+        position: relative;
+        overflow: hidden;
+        transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+        animation: fadeInUp 0.7s ease both;
+    }
+    .hub-card:hover {
+        transform: translateY(-6px);
+        box-shadow: 0 24px 56px rgba(0,0,0,0.5);
+        border-color: rgba(255,255,255,0.18);
+    }
+    .hub-card::before {
+        content:"";
+        position:absolute;
+        top:0; left:0; right:0;
+        height:4px;
+        border-radius:22px 22px 0 0;
+    }
+    .hub-card.ops::before  { background: linear-gradient(90deg,#3B82F6,#60A5FA); }
+    .hub-card.sol::before  { background: linear-gradient(90deg,#C9A227,#E8C547); }
+    .hub-card::after {
+        content:"";
+        position:absolute;
+        width:180px; height:180px;
+        border-radius:50%;
+        bottom:-50px; right:-50px;
+        opacity:0.06;
+        filter:blur(40px);
+    }
+    .hub-card.ops::after { background:#3B82F6; }
+    .hub-card.sol::after { background:#C9A227; }
 
-    with col1:
-        st.subheader("⚙️ Operations")
-        st.write("Document assistant, AI analysis tools, autonomous agent, and system management.")
-        st.write("")
+    .hub-icon {
+        font-size: 3rem;
+        display: block;
+        margin-bottom: 1.1rem;
+        animation: iconFloat 4s ease-in-out infinite;
+    }
+    .hub-card.sol .hub-icon { animation-delay: -2s; }
+    @keyframes iconFloat {
+        0%,100% { transform: translateY(0); }
+        50%      { transform: translateY(-6px); }
+    }
+    .hub-card-title {
+        color: #FFFFFF;
+        font-size: 1.3rem;
+        font-weight: 800;
+        margin: 0 0 0.5rem;
+    }
+    .hub-card-desc {
+        color: rgba(255,255,255,0.45);
+        font-size: 0.84rem;
+        line-height: 1.6;
+        margin: 0 0 1.4rem;
+    }
+
+    /* Hub card buttons */
+    .hub-ops-btn .stButton > button {
+        background: linear-gradient(135deg,#3B82F6,#60A5FA) !important;
+        color: #fff !important;
+        border: none !important;
+        border-radius: 10px !important;
+        font-weight: 700 !important;
+        font-size: 0.88rem !important;
+        padding: 0.65rem 1.2rem !important;
+        box-shadow: 0 4px 18px rgba(59,130,246,0.35) !important;
+        transition: all 0.22s !important;
+    }
+    .hub-ops-btn .stButton > button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 8px 28px rgba(59,130,246,0.5) !important;
+    }
+    .hub-sol-btn .stButton > button {
+        background: linear-gradient(135deg,#C9A227,#E8C547) !important;
+        color: #0B1120 !important;
+        border: none !important;
+        border-radius: 10px !important;
+        font-weight: 700 !important;
+        font-size: 0.88rem !important;
+        padding: 0.65rem 1.2rem !important;
+        box-shadow: 0 4px 18px rgba(201,162,39,0.35) !important;
+        transition: all 0.22s !important;
+    }
+    .hub-sol-btn .stButton > button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 8px 28px rgba(201,162,39,0.5) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ── Hero header ──────────────────────────────
+    st.markdown(f"""
+    <div class="landing-hero">
+        <p class="landing-greeting">Welcome back, {username}</p>
+        <p class="landing-title">Where would you like to go?</p>
+        <p class="landing-sub">Choose a workspace to get started.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.write("")
+
+    # ── Two hub cards ────────────────────────────
+    c1, c2 = st.columns(2, gap="large")
+
+    with c1:
+        st.markdown("""
+        <div class="hub-card ops">
+            <span class="hub-icon">⚙️</span>
+            <p class="hub-card-title">Operations</p>
+            <p class="hub-card-desc">
+                Run the autonomous pipeline, manage documents with AI, access training,
+                and configure the system from one place.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown('<div class="hub-ops-btn">', unsafe_allow_html=True)
         if st.button("Open Operations →", use_container_width=True, key="btn_ops"):
             goto("operations")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    with col2:
-        st.subheader("📋 Solicitations")
-        st.write("Live view of the master opportunity sheet. Browse entries and update bid status.")
-        st.write("")
+    with c2:
+        st.markdown("""
+        <div class="hub-card sol">
+            <span class="hub-icon">📋</span>
+            <p class="hub-card-title">Solicitations</p>
+            <p class="hub-card-desc">
+                Live view of the master opportunity sheet. Browse all tracked federal
+                opportunities and update bid status in real time.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown('<div class="hub-sol-btn">', unsafe_allow_html=True)
         if st.button("View Solicitations →", use_container_width=True, key="btn_sol"):
             goto("solicitations")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 # -------------------------------------------------
