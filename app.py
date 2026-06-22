@@ -508,33 +508,54 @@ def show_solicitations():
         display_df = display_df[display_df["Progress Report"] == active_filter].copy()
     st.caption(f"Showing {len(display_df)} of {total} solicitations" + (f" — filtered by '{active_filter}'" if active_filter != "All" else ""))
 
-    st.write("**Tip:** Change any Progress Report dropdown — it saves to the master sheet automatically.")
+    st.caption("Change any Progress Report dropdown — it saves to the master sheet automatically.")
 
-    # ── Data editor ───────────────────────────────
+    # ── Column config — explicit widths so all columns fit on one screen ──
+    _cols = display_df.columns.tolist()
     col_cfg = {}
-    if "Progress Report" in display_df.columns:
+    if "Solicitation Number" in _cols:
+        col_cfg["Solicitation Number"] = st.column_config.TextColumn("Sol. #", width=120)
+    if "Title" in _cols:
+        col_cfg["Title"] = st.column_config.TextColumn("Title", width=220)
+    if "Agency" in _cols:
+        col_cfg["Agency"] = st.column_config.TextColumn("Agency", width=140)
+    if "Solicitation Date" in _cols:
+        col_cfg["Solicitation Date"] = st.column_config.DateColumn("Posted", width=90)
+    if "Due Date" in _cols:
+        col_cfg["Due Date"] = st.column_config.DateColumn("Due Date", width=90)
+    if "Opportunity Type" in _cols:
+        col_cfg["Opportunity Type"] = st.column_config.TextColumn("Type", width=110)
+    if "Normalized Set Aside" in _cols:
+        col_cfg["Normalized Set Aside"] = st.column_config.TextColumn("Set Aside", width=140)
+    if "UiLink" in _cols:
+        col_cfg["UiLink"] = st.column_config.LinkColumn("Link", display_text="SAM.gov", width=75)
+    if "Progress Report" in _cols:
         col_cfg["Progress Report"] = st.column_config.SelectboxColumn(
             "Progress Report",
             options=_PROGRESS_OPTIONS,
             required=False,
-            width="medium",
+            width=160,
         )
-    if "UiLink" in display_df.columns:
-        col_cfg["UiLink"] = st.column_config.LinkColumn(
-            "Link", display_text="View on SAM.gov", width="small"
-        )
-    if "Due Date" in display_df.columns:
-        col_cfg["Due Date"] = st.column_config.DateColumn("Due Date", width="small")
-    if "Solicitation Date" in display_df.columns:
-        col_cfg["Solicitation Date"] = st.column_config.DateColumn("Solicitation Date", width="small")
+    if "Award Date" in _cols:
+        col_cfg["Award Date"] = st.column_config.DateColumn("Award", width=90)
 
-    editable = ["Progress Report"] if "Progress Report" in display_df.columns else []
-    disabled  = [c for c in display_df.columns if c not in editable]
+    # Preferred display order — only include columns that exist
+    _preferred_order = [
+        "Solicitation Number", "Title", "Agency", "Solicitation Date",
+        "Due Date", "Opportunity Type", "Normalized Set Aside",
+        "Progress Report", "UiLink", "Award Date",
+    ]
+    column_order = [c for c in _preferred_order if c in _cols]
+
+    editable = ["Progress Report"] if "Progress Report" in _cols else []
+    disabled  = [c for c in _cols if c not in editable]
 
     edited_df = st.data_editor(
         display_df,
         column_config=col_cfg,
+        column_order=column_order,
         disabled=disabled,
+        hide_index=True,
         use_container_width=True,
         num_rows="fixed",
         key=f"sol_editor_{active_filter}",
