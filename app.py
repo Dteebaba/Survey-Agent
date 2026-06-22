@@ -576,8 +576,7 @@ def show_autonomous_agent():
         )
         last_run_label = (
             f"{last_status_icon} "
-            + datetime.fromisoformat(last_entry["timestamp"]).strftime("%Y-%m-%d %H:%M UTC")
-            + f"  ({last_entry.get('triggered_by', '?')})"
+            + datetime.fromisoformat(last_entry["timestamp"]).strftime("%b %d, %Y")
         )
     else:
         last_run_label = "Never"
@@ -689,7 +688,7 @@ def show_autonomous_agent():
             st.divider()
             st.markdown("#### Last Run Report")
 
-            ts = datetime.fromisoformat(last_entry["timestamp"]).strftime("%Y-%m-%d %H:%M:%S UTC")
+            ts = datetime.fromisoformat(last_entry["timestamp"]).strftime("%B %d, %Y  %H:%M UTC")
             trig = last_entry.get("triggered_by", "?").capitalize()
             status_label = {
                 "success":       "✅ Success",
@@ -736,7 +735,7 @@ def show_autonomous_agent():
             for entry in run_log:   # already most-recent-first
                 ts = entry.get("timestamp", "")
                 try:
-                    ts_fmt = datetime.fromisoformat(ts).strftime("%Y-%m-%d %H:%M:%S UTC")
+                    ts_fmt = datetime.fromisoformat(ts).strftime("%b %d, %Y  %H:%M UTC")
                 except Exception:
                     ts_fmt = ts
 
@@ -812,7 +811,7 @@ def show_autonomous_agent():
             for pf in reversed(pf_list):   # most recent first
                 ts = pf.get("timestamp", "")
                 try:
-                    ts_fmt = datetime.fromisoformat(ts).strftime("%Y-%m-%d %H:%M UTC")
+                    ts_fmt = datetime.fromisoformat(ts).strftime("%b %d, %Y  %H:%M UTC")
                 except Exception:
                     ts_fmt = ts
                 status = pf.get("status", "ok").lower()
@@ -856,7 +855,7 @@ def show_autonomous_agent():
             for err in reversed(all_errors):
                 ts = err.get("timestamp", "")
                 try:
-                    ts_fmt = datetime.fromisoformat(ts).strftime("%Y-%m-%d %H:%M UTC")
+                    ts_fmt = datetime.fromisoformat(ts).strftime("%b %d, %Y  %H:%M UTC")
                 except Exception:
                     ts_fmt = ts
                 st.error(f"[{ts_fmt}]  {err.get('message', '')}")
@@ -1097,7 +1096,7 @@ def show_admin():
                 current_role = user.get('role', 'user')
                 created = user.get('created_at', '')
                 try:
-                    created = datetime.datetime.fromisoformat(created).strftime("%Y-%m-%d")
+                    created = datetime.datetime.fromisoformat(created).strftime("%b %d, %Y")
                 except Exception:
                     created = created[:10] if created else "—"
 
