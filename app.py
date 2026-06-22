@@ -142,15 +142,25 @@ def load_users():
 
 
 def save_users(users):
+    # Always update local cache first
     try:
         with open('users.json', 'w') as f:
             json.dump(users, f, indent=4)
-        from auth import save_users_to_gist
-        save_users_to_gist(users)
-        return True
     except Exception as e:
-        st.error(f"Error saving users: {e}")
+        st.error(f"Could not write local users cache: {e}")
         return False
+
+    # Gist is the permanent store — must succeed for changes to survive restarts
+    from auth import save_users_to_gist
+    if save_users_to_gist(users):
+        return True
+
+    st.error(
+        "⚠️ User saved locally but **could not sync to Gist** — "
+        "changes will be lost on next server restart. "
+        "Check that **GIST_ID** and **GH_TOKEN** are set in Streamlit Cloud secrets."
+    )
+    return False
 
 
 def add_user(username: str, password: str, role: str = "user"):

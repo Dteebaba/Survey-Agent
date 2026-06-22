@@ -5,120 +5,154 @@ import requests
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
-def hash_password(password: str) -> str:
-    """Hash a password using SHA256"""
+
+def _hash(password: str) -> str:
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
-def get_gist_config():
-    """Get GitHub Gist configuration from environment variables"""
-    gist_id = os.getenv('GIST_ID', '')
-    github_token = os.getenv('GITHUB_TOKEN', '')
+
+def _get_token():
+    return os.getenv('GITHUB_TOKEN') or os.getenv('GH_TOKEN', '')
+
+
+def _gist_headers():
     return {
-        'gist_id': gist_id,
-        'github_token': github_token,
-        'gist_url': f'https://api.github.com/gists/{gist_id}' if gist_id else ''
+        'Authorization': f"token {_get_token()}",
+        'Accept': 'application/vnd.github.v3+json'
     }
 
-def check_gist_exists():
-    """Check if Gist already has users"""
-    config = get_gist_config()
-    
-    if not config['gist_id'] or not config['github_token']:
+
+def _load_from_gist():
+    """
+    Try to load users from Gist.
+    Returns (reachable: bool, users: list).
+    reachable=True means we successfully contacted the Gist API.
+    """
+    gist_id = os.getenv('GIST_ID', '')
+    token   = _get_token()
+
+    if not gist_id or not token:
         return False, []
-    
+
     try:
-        headers = {
-            'Authorization': f"token {config['github_token']}",
-            'Accept': 'application/vnd.github.v3+json'
-        }
-        response = requests.get(config['gist_url'], headers=headers, timeout=5)
-        
-        if response.status_code == 200:
-            gist_data = response.json()
-            users_content = gist_data['files']['users.json']['content']
-            users = json.loads(users_content)
-            return True, users
+        resp = requests.get(
+            f'https://api.github.com/gists/{gist_id}',
+            headers=_gist_headers(),
+            timeout=8
+        )
+        if resp.status_code == 200:
+            files = resp.json().get('files', {})
+            if 'users.json' in files:
+                users = json.loads(files['users.json']['content'])
+                return True, users
+            # Gist reachable but users.json doesn't exist yet
+            return True, []
+        print(f"[init_admin] Gist returned HTTP {resp.status_code}")
+        return False, []
     except Exception as e:
-        print(f"Could not check Gist: {e}")
-    
-    return False, []
+        print(f"[init_admin] Could not reach Gist: {e}")
+        return False, []
+
+
+def _save_to_gist(users: list):
+    gist_id = os.getenv('GIST_ID', '')
+    token   = _get_token()
+    if not gist_id or not token:
+        return
+    try:
+        resp = requests.patch(
+            f'https://api.github.com/gists/{gist_id}',
+            headers=_gist_headers(),
+            json={'files': {'users.json': {'content': json.dumps(users, indent=2)}}},
+            timeout=10
+        )
+        if resp.status_code == 200:
+            print(f"[init_admin] ✅ users.json saved to Gist")
+        else:
+            print(f"[init_admin] ⚠ Gist save returned {resp.status_code}")
+    except Exception as e:
+        print(f"[init_admin] Gist save error: {e}")
+
 
 def create_default_admin():
-    """Create default admin user if not exists"""
-    
-    # Check if users already exist in Gist
-    gist_exists, existing_users = check_gist_exists()
-    
-    if gist_exists and len(existing_users) > 0:
-        print(f"✓ Found {len(existing_users)} users in GitHub Gist")
-        # Save locally for offline access
-        with open('users.json', 'w') as f:
-            json.dump(existing_users, f, indent=4)
+    """
+    Ensure at least the default admin exists.
+
+    Safety rules:
+    - If Gist is reachable and has users → use those as truth, never overwrite.
+    - If Gist is reachable but empty → create admin and write to Gist.
+    - If Gist is NOT reachable → use local cache if available; never write to Gist.
+      The local cache is ephemeral on Streamlit Cloud, so on a cold restart with
+      no Gist connectivity we log a warning but do NOT create a blank user list.
+    """
+    gist_reachable, gist_users = _load_from_gist()
+
+    if gist_reachable:
+        if gist_users:
+            # Gist has users — always treat as source of truth
+            try:
+                with open('users.json', 'w') as f:
+                    json.dump(gist_users, f, indent=4)
+            except Exception:
+                pass
+            print(f"[init_admin] ✅ Loaded {len(gist_users)} user(s) from Gist")
+            return
+
+        # Gist is reachable but empty — first-time setup, create default admin
+        admin_username = os.getenv('ADMIN_USERNAME', 'admin')
+        admin_password = os.getenv('ADMIN_PASSWORD', 'changeme123')
+
+        users = [{
+            'username':   admin_username,
+            'password':   _hash(admin_password),
+            'role':       'admin',
+            'created_at': '2024-01-01T00:00:00',
+            'created_by': 'system'
+        }]
+
+        try:
+            with open('users.json', 'w') as f:
+                json.dump(users, f, indent=4)
+        except Exception:
+            pass
+
+        _save_to_gist(users)
+        print(f"[init_admin] ✅ Default admin '{admin_username}' created and saved to Gist")
         return
-    
-    # Check local file
+
+    # Gist not reachable — fall back to local cache only, never create/overwrite
     users_file = Path('users.json')
     if users_file.exists():
         try:
-            with open(users_file, 'r') as f:
-                existing_users = json.load(f)
-                if len(existing_users) > 0:
-                    print(f"✓ Found {len(existing_users)} users locally")
-                    return
-        except:
+            users = json.loads(users_file.read_text())
+            if users:
+                print(f"[init_admin] ⚠ Gist unreachable — using local cache ({len(users)} users)")
+                return
+        except Exception:
             pass
-    
-    # Create new admin user
+
+    # Neither Gist nor local cache has users — last resort: create admin locally only.
+    # We do NOT write to Gist here because we couldn't verify the Gist state.
     admin_username = os.getenv('ADMIN_USERNAME', 'admin')
     admin_password = os.getenv('ADMIN_PASSWORD', 'changeme123')
-    
-    hashed_pw = hash_password(admin_password)
-    
-    default_admin = {
-        'username': admin_username,
-        'password': hashed_pw,
-        'role': 'admin',
+
+    users = [{
+        'username':   admin_username,
+        'password':   _hash(admin_password),
+        'role':       'admin',
         'created_at': '2024-01-01T00:00:00',
         'created_by': 'system'
-    }
-    
-    users = [default_admin]
-    
-    # Save locally
-    with open('users.json', 'w') as f:
-        json.dump(users, f, indent=4)
-    
-    # Save to Gist
-    config = get_gist_config()
-    if config['gist_id'] and config['github_token']:
-        try:
-            headers = {
-                'Authorization': f"token {config['github_token']}",
-                'Accept': 'application/vnd.github.v3+json'
-            }
-            
-            data = {
-                'files': {
-                    'users.json': {
-                        'content': json.dumps(users, indent=2)
-                    }
-                }
-            }
-            
-            response = requests.patch(config['gist_url'], headers=headers, json=data, timeout=5)
-            if response.status_code == 200:
-                print(f"✓ Default admin created in GitHub Gist: {admin_username}")
-            else:
-                print(f"✓ Default admin created locally: {admin_username} (Gist sync: {response.status_code})")
-        except Exception as e:
-            print(f"✓ Default admin created locally: {admin_username}")
-            print(f"  (Gist sync failed: {e})")
-    else:
-        print(f"✓ Default admin created locally: {admin_username}")
-        print("  (GitHub Gist not configured - set GIST_ID and GITHUB_TOKEN)")
+    }]
+
+    try:
+        with open('users.json', 'w') as f:
+            json.dump(users, f, indent=4)
+        print(f"[init_admin] ⚠ Gist unreachable — created local-only admin '{admin_username}'")
+        print("[init_admin]   Check that GIST_ID and GH_TOKEN are set in Streamlit secrets.")
+    except Exception as e:
+        print(f"[init_admin] Could not write users.json: {e}")
+
 
 if __name__ == "__main__":
     create_default_admin()
