@@ -101,7 +101,7 @@ def upload_drive_file(file_id: str, content: bytes, mime_type: str) -> dict:
 # ─────────────────────────────────────────────
 
 def _open_master() -> tuple:
-    """Download master xlsx. Returns (wb, ws, raw_bytes)."""
+    """Download master xlsx for writing. Returns (wb, ws, raw_bytes)."""
     raw = download_drive_file(SPREADSHEET_FILE_ID)
     wb  = openpyxl.load_workbook(io.BytesIO(raw))
 
@@ -117,6 +117,14 @@ def _open_master() -> tuple:
             _write_headers(ws)
 
     return wb, ws, raw
+
+
+def _open_master_readonly():
+    """Download master xlsx in read-only mode (faster, no styles loaded)."""
+    raw = download_drive_file(SPREADSHEET_FILE_ID)
+    wb  = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    ws  = wb[SHEET_TAB_NAME] if SHEET_TAB_NAME in wb.sheetnames else wb.active
+    return wb, ws
 
 
 def _write_headers(ws):
@@ -281,21 +289,19 @@ def read_master_sheet():
     """Download master sheet and return data as a pandas DataFrame."""
     import pandas as pd
 
-    _, ws, _ = _open_master()
+    wb, ws = _open_master_readonly()
+    try:
+        all_rows = list(ws.iter_rows(values_only=True))
+    finally:
+        wb.close()
 
-    if ws.max_row < 1:
+    if not all_rows:
         return pd.DataFrame()
 
-    headers = [ws.cell(1, c).value or f"Col{c}" for c in range(1, ws.max_column + 1)]
+    headers = [str(v) if v is not None else f"Col{i+1}" for i, v in enumerate(all_rows[0])]
+    data = [list(row) for row in all_rows[1:] if any(v is not None for v in row)]
 
-    rows = []
-    for r in range(2, ws.max_row + 1):
-        vals = [ws.cell(r, c).value for c in range(1, ws.max_column + 1)]
-        if any(v is not None for v in vals):
-            rows.append(vals)
-
-    df = pd.DataFrame(rows, columns=headers)
-    # Ensure Progress Report exists as a string column
+    df = pd.DataFrame(data, columns=headers)
     if "Progress Report" in df.columns:
         df["Progress Report"] = df["Progress Report"].fillna("").astype(str).replace("None", "")
     return df

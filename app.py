@@ -56,6 +56,15 @@ p, label, .stMarkdown, h1, h2, h3, h4 { color: #E6EDF3 !important; }
 """
 
 # -------------------------------------------------
+# Cached sheet loader — shared across all sessions, refreshes every 10 min
+# -------------------------------------------------
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_solicitations():
+    from google_connector import read_master_sheet
+    return read_master_sheet()
+
+
+# -------------------------------------------------
 # AUTH + SESSION STATE
 # -------------------------------------------------
 check_access()
@@ -437,38 +446,38 @@ def show_solicitations():
                 goto("landing")
     with col_refresh:
         if st.button("🔄 Refresh from Sheet"):
+            _fetch_solicitations.clear()
             st.session_state.pop("sol_data", None)
             st.session_state.pop("sol_original_progress", None)
             st.session_state["sol_status"] = "loading"
             st.rerun()
 
-    # ── Load data (show cached immediately, fetch if missing) ────
+    # ── Load data (serve from memory cache, fetch from Drive only on cold start) ──
     sheet_status = st.session_state.get("sol_status", "idle")
+    status_placeholder = col_status.empty()
 
     if "sol_data" not in st.session_state:
-        with col_status:
-            st.info("⏳ Loading sheet…")
+        status_placeholder.info("⏳ Loading sheet…")
         try:
-            from google_connector import read_master_sheet
-            df = read_master_sheet()
+            df = _fetch_solicitations()
             st.session_state["sol_data"] = df
             st.session_state["sol_original_progress"] = (
                 df["Progress Report"].copy().reset_index(drop=True)
                 if "Progress Report" in df.columns else None
             )
             st.session_state["sol_status"] = "updated"
-            st.rerun()
+            status_placeholder.success("✅ Up to date")
         except Exception as e:
+            status_placeholder.empty()
             st.error(f"Failed to load sheet: {e}")
             return
     else:
-        with col_status:
-            if sheet_status == "updated":
-                st.success("✅ Up to date")
-            elif sheet_status == "loading":
-                st.info("⏳ Waiting to update…")
-            else:
-                st.caption("Showing cached data")
+        if sheet_status == "updated":
+            status_placeholder.success("✅ Up to date")
+        elif sheet_status == "loading":
+            status_placeholder.info("⏳ Waiting to update…")
+        else:
+            status_placeholder.caption("Showing cached data")
 
     df = st.session_state["sol_data"]
 
@@ -718,7 +727,8 @@ def show_autonomous_agent():
                         result_box.success(
                             f"✅ **{rows} rows** appended from: {names}"
                         )
-                        # Clear cached sheet so solicitations reloads fresh data
+                        # Bust cache so solicitations reloads fresh data from Drive
+                        _fetch_solicitations.clear()
                         st.session_state.pop("sol_data", None)
                         st.session_state.pop("sol_original_progress", None)
                         st.session_state["sol_just_updated"] = True
