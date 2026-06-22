@@ -1,6 +1,7 @@
 """
 Token Store - Uses Google Service Account for permanent, never-expiring auth.
-Service account JSON stored in GOOGLE_SERVICE_ACCOUNT_JSON Replit Secret.
+Service account JSON stored in GOOGLE_SERVICE_ACCOUNT_JSON environment variable
+(Streamlit Cloud secrets or GitHub Actions secrets).
 """
 
 import os
@@ -11,12 +12,11 @@ logger = logging.getLogger(__name__)
 
 
 def _get_service_account_credentials():
-    """Load service account credentials from Replit Secret."""
     sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     if not sa_json:
         raise ValueError(
-            "GOOGLE_SERVICE_ACCOUNT_JSON secret not found.\n"
-            "Add it in Replit Secrets."
+            "GOOGLE_SERVICE_ACCOUNT_JSON is not set. "
+            "Add it to Streamlit Cloud secrets and GitHub Actions secrets."
         )
     try:
         return json.loads(sa_json)
