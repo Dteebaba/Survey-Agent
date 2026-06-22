@@ -533,7 +533,6 @@ def show_solicitations():
     )
 
     # ── Auto-save on every rerun if anything changed ──
-    # Use the original df index to get the correct sheet row numbers even when filtered
     original_prog = st.session_state.get("sol_original_progress")
     if original_prog is not None and "Progress Report" in edited_df.columns:
         updates = {}
@@ -543,19 +542,27 @@ def show_solicitations():
                 updates[df_idx + 2] = str(new_val or "")  # sheet row: header=1, data starts at 2
 
         if updates:
-            with st.spinner(f"Auto-saving {len(updates)} change(s) to master sheet…"):
+            with st.spinner(f"Saving {len(updates)} change(s)…"):
                 try:
                     from google_connector import update_progress_reports
                     count = update_progress_reports(updates)
+
+                    # Merge changes back into the FULL dataframe (not just the filtered view)
+                    # so switching filters or refreshing doesn't lose the edits
+                    full_df = st.session_state["sol_data"].copy()
+                    for df_idx, new_val in zip(display_df.index, edited_df["Progress Report"]):
+                        full_df.at[df_idx, "Progress Report"] = str(new_val or "")
+                    st.session_state["sol_data"] = full_df
                     st.session_state["sol_original_progress"] = (
-                        edited_df["Progress Report"].copy().reset_index(drop=True)
+                        full_df["Progress Report"].copy().reset_index(drop=True)
                     )
-                    st.session_state["sol_data"] = edited_df.copy()
+                    st.session_state["sol_status"] = "updated"
+
                     log_event("update_progress", "success", f"{count} rows updated")
-                    st.success(f"✅ {count} status update(s) saved to master sheet and Excel file.")
+                    st.success(f"✅ {count} status update(s) saved.")
                 except Exception as e:
                     log_event("update_progress", "error", str(e))
-                    st.error(f"Auto-save failed: {e}")
+                    st.error(f"Save failed: {e}")
 
 
 # -------------------------------------------------
