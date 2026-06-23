@@ -1,47 +1,58 @@
 name: Nightly Opportunity Pipeline
 
-# ── When to run ────────────────────────────────────────────────────────────
 on:
   schedule:
-    # 02:00 UTC = 10:00 PM EDT (Mar–Nov)
-    # 02:00 UTC = 09:00 PM EST (Nov–Mar) — one hour early in winter
+    # 02:00 UTC = 10:00 PM EDT (Mar–Nov) / 09:00 PM EST (Nov–Mar)
     - cron: '0 2 * * *'
+  workflow_dispatch:   # allows manual "Run workflow" from GitHub Actions tab
 
-  # Also lets you click "Run workflow" manually from the GitHub Actions tab
-  workflow_dispatch:
-
-# ── Job ────────────────────────────────────────────────────────────────────
 jobs:
   run-pipeline:
     name: Scan Drive & update master sheet
     runs-on: ubuntu-latest
-    timeout-minutes: 30          # fail-safe: kill if stuck
+    timeout-minutes: 30
 
     steps:
-      # 1. Check out the repo (includes agent_state.json from last run)
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Set up Python
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
 
-      # 3. Install dependencies
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # 4. Run the pipeline
-      #    All secrets are injected as environment variables.
-      #    The script reads them with os.getenv().
+      # Validate that all required secrets are present before running
+      - name: Validate secrets
+        run: |
+          missing=""
+          [ -z "$GOOGLE_SERVICE_ACCOUNT_JSON" ] && missing="$missing GOOGLE_SERVICE_ACCOUNT_JSON"
+          [ -z "$GOOGLE_DRIVE_FOLDER_ID" ]      && missing="$missing GOOGLE_DRIVE_FOLDER_ID"
+          [ -z "$GOOGLE_SHEETS_ID" ]             && missing="$missing GOOGLE_SHEETS_ID"
+          [ -z "$GIST_ID" ]                      && missing="$missing GIST_ID"
+          [ -z "$GH_TOKEN" ]                     && missing="$missing GH_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "❌ Missing required secrets:$missing"
+            echo "Add them in: GitHub repo → Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          echo "✅ All required secrets are present"
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
       - name: Run nightly pipeline
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
           GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
           GIST_ID: ${{ secrets.GIST_ID }}
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python pipeline_job.py

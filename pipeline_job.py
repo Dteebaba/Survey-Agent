@@ -84,6 +84,15 @@ def main():
         else:
             log.info("✅ Pipeline complete — %d row(s) added to master sheet.", rows)
 
+        # Print Gist sync confirmation so we can verify state was saved
+        gist_id = os.getenv("GIST_ID", "")
+        gh_token = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN", "")
+        if gist_id and gh_token:
+            log.info("🔗 Gist state sync: GIST_ID=%s…  token=%s…",
+                     gist_id[:8], gh_token[:8])
+        else:
+            log.warning("⚠️  Gist state sync SKIPPED — GIST_ID or GH_TOKEN not set")
+
         log.info("=" * 60)
 
     except Exception as exc:

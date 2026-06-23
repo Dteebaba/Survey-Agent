@@ -19,7 +19,8 @@ import requests
 STATE_FILE   = "agent_state.json"
 GIST_FILE    = "agent_state.json"       # filename inside the Gist
 _GIST_ID     = os.getenv("GIST_ID", "")
-_GIST_TOKEN  = os.getenv("GITHUB_TOKEN", "")   # PAT with gist scope
+# Accept GH_TOKEN (Streamlit Cloud secret name) or GITHUB_TOKEN (workflow env var)
+_GIST_TOKEN  = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN", "")
 
 
 # ─────────────────────────────────────────────

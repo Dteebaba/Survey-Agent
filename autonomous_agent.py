@@ -100,10 +100,11 @@ def _apply_filter(df: pd.DataFrame) -> pd.DataFrame:
         out = out[out["Normalized Set Aside"].isin(QUALIFYING_SET_ASIDES)]
     if "Due Date" in out.columns:
         out["Due Date"] = force_date(out["Due Date"])
-        today  = datetime.utcnow().date()
-        future = today + timedelta(days=14)
+        today = datetime.utcnow().date()
+        # Keep all opportunities not yet past due — no upper ceiling so future
+        # opportunities are never permanently missed because a file was already processed
         out = out.dropna(subset=["Due Date"])
-        out = out[(out["Due Date"] >= today) & (out["Due Date"] <= future)]
+        out = out[out["Due Date"] >= today]
     return out
 
 
