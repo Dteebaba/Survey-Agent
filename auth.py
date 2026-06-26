@@ -340,14 +340,16 @@ _LOGIN_FOOTER = """
 
 def check_access():
     """Username/password login gate with cookie-based session persistence."""
-    cm = _cm()
 
     # ── Already authenticated this session ─────────────────────────────────
+    # Do NOT create CookieManager here — if a Sign Out button fires in the
+    # same render cycle, clear_auth_cookie() will create one too, causing a
+    # StreamlitDuplicateElementKey on the shared "almor_auth_cm" key.
     if st.session_state.get("authenticated"):
-        # Refresh cookie on every page interaction to extend the 10-min window
-        if cm:
-            _set_session_cookie(cm, st.session_state["username"], st.session_state["role"])
         return
+
+    # ── Not yet authenticated — safe to create the CookieManager now ───────
+    cm = _cm()
 
     # ── Try to restore from cookie (survives tab close / refresh) ──────────
     if cm:
