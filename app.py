@@ -1196,12 +1196,58 @@ def show_autonomous_agent():
     if st.button("← Back to Operations"):
         goto("operations")
 
-    # ── Scheduler health ──────────────────────────────────────
-    st.info(
-        "🤖 **Nightly runs are handled by GitHub Actions** — fires at **10 PM ET** "
-        "every night on GitHub's own servers. No server needs to stay awake. "
-        "The manual run button below works anytime, from anywhere."
-    )
+    # ── Countdown to next auto-run ────────────────────────────
+    st.markdown("""
+<div style="
+    background:rgba(30,144,255,0.08);
+    border:1px solid rgba(30,144,255,0.25);
+    border-radius:12px;
+    padding:1rem 1.5rem;
+    display:flex;
+    align-items:center;
+    gap:2rem;
+    flex-wrap:wrap;
+">
+  <div>
+    <div style="font-size:0.75rem;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.25rem;">Next Auto-Run</div>
+    <div id="almor-next-label" style="font-size:0.85rem;color:rgba(255,255,255,0.6);">--:-- UTC</div>
+  </div>
+  <div>
+    <div style="font-size:0.75rem;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.25rem;">Countdown</div>
+    <div id="almor-countdown" style="font-size:1.6rem;font-weight:700;font-family:monospace;color:#1E90FF;letter-spacing:.05em;">--:--:--</div>
+  </div>
+  <div style="margin-left:auto;font-size:0.8rem;color:rgba(255,255,255,0.4);max-width:260px;line-height:1.5;">
+    🤖 Runs every <strong style="color:rgba(255,255,255,0.7);">4 hours</strong> via GitHub Actions.
+    Manual run works anytime below.
+  </div>
+</div>
+<script>
+(function(){
+  function nextRun(){
+    var now=new Date();
+    var h=now.getUTCHours();
+    var nextH=(Math.floor(h/4)+1)*4;
+    var d=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate(),nextH%24,0,0,0));
+    if(nextH>=24) d.setUTCDate(d.getUTCDate()+1);
+    return d;
+  }
+  function pad(n){return String(n).padStart(2,'0');}
+  function tick(){
+    var now=new Date(), next=nextRun();
+    var diff=Math.max(0,next-now);
+    var h=Math.floor(diff/3600000);
+    var m=Math.floor((diff%3600000)/60000);
+    var s=Math.floor((diff%60000)/1000);
+    var el=document.getElementById('almor-countdown');
+    var lb=document.getElementById('almor-next-label');
+    if(el) el.textContent=pad(h)+':'+pad(m)+':'+pad(s);
+    if(lb) lb.textContent=pad(next.getUTCHours())+':00 UTC';
+  }
+  tick();
+  setInterval(tick,1000);
+})();
+</script>
+""", unsafe_allow_html=True)
 
     # ── Headline metrics ──────────────────────────────────────
     s = get_summary()
@@ -1255,11 +1301,12 @@ def show_autonomous_agent():
         st.markdown(
             """
             **How it works:**
-            - **GitHub Actions fires automatically at 10&nbsp;PM ET** every night
+            - **GitHub Actions fires automatically every 4 hours** (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC)
               using GitHub's own servers — no server of yours needs to stay awake.
             - If you click **Run Latest Update**, the agent checks Drive for any files
               it hasn't processed yet. Already-processed files are always skipped —
               so a manual run never double-counts data.
+            - Only solicitations due **10 or more days from today** are extracted.
             - Every run saves its result to disk, so the dashboard is always up-to-date
               even after a server restart.
             """,
@@ -1537,9 +1584,9 @@ def show_autonomous_agent():
 
         st.subheader("How the Agent Works")
         st.write(
-            "Every night at **10 PM ET**, the agent automatically scans your Google Drive folder "
+            "Every **4 hours**, the agent automatically scans your Google Drive folder "
             "for new opportunity files. It filters for SDVOSB, SDVOSBC, and SBA set-aside solicitations "
-            "with due dates within the next 14 days, then appends qualifying rows to the master sheet. "
+            "with due dates **10 or more days from today**, then appends qualifying rows to the master sheet. "
             "Files already processed are always skipped — no duplicates, ever."
         )
         st.write(
@@ -1556,7 +1603,7 @@ def show_autonomous_agent():
         st.write(f"- **Google Drive Folder** (source files): [Open Folder](https://drive.google.com/drive/folders/{folder_id})")
         st.write(f"- **Master Sheet** (output): [Open Sheet](https://docs.google.com/spreadsheets/d/{sheet_id})")
         st.write("- **Filter:** SDVOSB / SDVOSBC / SBA set-asides · Due within **14 days**")
-        st.write("- **Automatic schedule:** Every night at **10:00 PM ET**")
+        st.write("- **Automatic schedule:** Every **4 hours** (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC)")
 
     st.markdown("</div>", unsafe_allow_html=True)
 

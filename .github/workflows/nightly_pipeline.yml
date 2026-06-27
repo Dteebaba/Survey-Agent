@@ -2,8 +2,8 @@ name: Nightly Opportunity Pipeline
 
 on:
   schedule:
-    # 02:00 UTC = 10:00 PM EDT (Mar–Nov) / 09:00 PM EST (Nov–Mar)
-    - cron: '0 2 * * *'
+    # Every 4 hours: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC
+    - cron: '0 */4 * * *'
   workflow_dispatch:   # allows manual "Run workflow" from GitHub Actions tab
 
 jobs:
