@@ -1231,6 +1231,15 @@ def show_autonomous_agent():
     c3.metric("Total Files Processed", s["total_files_processed"])
     c4.metric("Total Rows Added",      s["total_rows_added"])
 
+    # ── Quick Links ───────────────────────────────────────────
+    _folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "1bSGpFbEW09jAq6pdn1i_WO8RUAa3DPUJ")
+    _sheet_id  = os.getenv("GOOGLE_SHEETS_ID",       "151jig9_3v-__dHfk7TksitJYONDMOLQV")
+    ql1, ql2 = st.columns(2)
+    with ql1:
+        st.link_button("📂 Open Google Drive Folder", f"https://drive.google.com/drive/folders/{_folder_id}", use_container_width=True)
+    with ql2:
+        st.link_button("📊 Open Master Sheet", f"https://docs.google.com/spreadsheets/d/{_sheet_id}", use_container_width=True)
+
     # ── Tabbed detail sections ────────────────────────────────
     tab_run, tab_history, tab_files, tab_errors, tab_cfg = st.tabs([
         "▶ Run / Control",
@@ -1339,12 +1348,10 @@ def show_autonomous_agent():
 
         # View solicitations shortcut after a successful run
         if st.session_state.get("sol_just_updated"):
-            st.write("")
-            _, btn_col, _ = st.columns([2, 3, 2])
-            with btn_col:
-                if st.button("📋 View Updated Solicitations →", use_container_width=True, type="primary"):
-                    st.session_state.pop("sol_just_updated", None)
-                    goto("solicitations")
+            st.success("✅ Pipeline complete — solicitations have been updated.")
+            if st.button("📋 View Updated Solicitations →", use_container_width=True, type="primary"):
+                st.session_state.pop("sol_just_updated", None)
+                goto("solicitations")
 
         # Last run detail card
         if last_entry:
