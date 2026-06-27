@@ -100,11 +100,11 @@ def _apply_filter(df: pd.DataFrame) -> pd.DataFrame:
         out = out[out["Normalized Set Aside"].isin(QUALIFYING_SET_ASIDES)]
     if "Due Date" in out.columns:
         out["Due Date"] = force_date(out["Due Date"])
-        today = datetime.utcnow().date()
-        # Keep all opportunities not yet past due — no upper ceiling so future
-        # opportunities are never permanently missed because a file was already processed
+        # Keep solicitations with at least 10 days remaining so there is
+        # enough time to prepare a bid response.
+        cutoff = datetime.utcnow().date() + timedelta(days=10)
         out = out.dropna(subset=["Due Date"])
-        out = out[out["Due Date"] >= today]
+        out = out[out["Due Date"] >= cutoff]
     return out
 
 
@@ -224,8 +224,10 @@ def run_pipeline(progress_callback=None) -> dict:
     """
     Main pipeline entry point.
 
-    FIRST RUN  → processes ALL files oldest → newest.
-    NEXT RUNS  → skips already-processed files, only processes new ones.
+    EVERY RUN checks ALL files in the Drive folder.
+    Row-level deduplication against the master sheet prevents double-adding rows,
+    so solicitations that were filtered out in a previous run (e.g. due date was
+    too far out) are captured automatically once they fall within the window.
     """
     summary = {
         "files_checked":   0,
@@ -253,61 +255,49 @@ def run_pipeline(progress_callback=None) -> dict:
                 progress_callback(summary["message"])
             return summary
 
-        # Which files have we already processed?
-        processed_ids = get_processed_file_ids()
-        new_files = [f for f in data_files if f["id"] not in processed_ids]
-
-        if not new_files:
-            latest_name = data_files[-1]["name"]   # newest
-            summary["message"] = (
-                f"No new files — latest file ({latest_name}) was already processed."
-            )
-            log.info(summary["message"])
-            if progress_callback:
-                progress_callback(summary["message"])
-            return summary
-
-        log.info(f"Found {len(new_files)} new file(s) to process "
-                 f"(skipping {len(processed_ids)} already processed)")
-
+        log.info(f"Checking all {len(data_files)} file(s) against master sheet…")
         if progress_callback:
-            progress_callback(
-                f"Found {len(new_files)} new file(s) — processing oldest → newest…"
-            )
+            progress_callback(f"Checking all {len(data_files)} file(s)…")
 
         # Load existing dedup keys ONCE before processing all files
         existing_sols, existing_links = get_existing_dedup_keys()
 
         total_rows = 0
-        for idx, f in enumerate(new_files, 1):
+        for idx, f in enumerate(data_files, 1):
             fname = f["name"]
             fid   = f["id"]
 
             if progress_callback:
-                progress_callback(f"Processing file {idx}/{len(new_files)}: {fname}")
+                progress_callback(f"Checking file {idx}/{len(data_files)}: {fname}")
 
             try:
                 rows_added, msg = process_file(
                     fid, fname, existing_sols, existing_links
                 )
-                mark_file_seen(fid, fname, rows_added, status="ok")
+                if rows_added > 0:
+                    mark_file_seen(fid, fname, rows_added, status="ok")
                 total_rows += rows_added
                 summary["processed_files"].append({
                     "name": fname, "rows_added": rows_added, "message": msg
                 })
-                log.info(f"  [{idx}/{len(new_files)}] {fname} → {msg}")
+                log.info(f"  [{idx}/{len(data_files)}] {fname} → {msg}")
 
             except Exception as e:
                 err = f"Error processing {fname}: {e}"
                 log.error(err)
                 log.error(traceback.format_exc())
                 summary["errors"].append(err)
-                mark_file_seen(fid, fname, 0, status="error")
 
-        summary["files_processed"]  = len(new_files)
+        files_with_new_rows = sum(
+            1 for f in summary["processed_files"] if f.get("rows_added", 0) > 0
+        )
+        summary["files_processed"]  = files_with_new_rows
         summary["total_rows_added"] = total_rows
         summary["message"] = (
-            f"Processed {len(new_files)} file(s) — {total_rows} rows added."
+            f"Checked {len(data_files)} file(s) — {total_rows} new row(s) added "
+            f"across {files_with_new_rows} file(s)."
+            if total_rows > 0 else
+            f"Checked {len(data_files)} file(s) — sheet is up to date, no new rows."
         )
         log.info(summary["message"])
 

@@ -79,8 +79,8 @@ def main():
             log.info("=" * 60)
             sys.exit(1)
 
-        if files_done == 0:
-            log.info("ℹ️  No new files to process — sheet is up to date.")
+        if rows == 0:
+            log.info("ℹ️  No new rows — sheet is up to date.")
         else:
             log.info("✅ Pipeline complete — %d row(s) added to master sheet.", rows)
 

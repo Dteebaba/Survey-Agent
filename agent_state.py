@@ -218,12 +218,12 @@ def record_run(triggered_by: str, summary: dict):
     """
     state = _load()
 
-    errors          = summary.get("errors", [])
-    files_processed = summary.get("files_processed", 0)
+    errors      = summary.get("errors", [])
+    rows_added  = summary.get("total_rows_added", 0)
 
     if errors:
         run_status = "error"
-    elif files_processed == 0:
+    elif rows_added == 0:
         run_status = "no_new_files"
     else:
         run_status = "success"
