@@ -317,4 +317,15 @@ def run_pipeline(progress_callback=None) -> dict:
         summary["message"] = f"Error: {e}"
         log.error(traceback.format_exc())
 
+    # Post-pipeline: clean expired rows then refresh Urgent tab
+    try:
+        from google_connector import cleanup_overdue_rows, refresh_urgent_tab
+        removed = cleanup_overdue_rows()
+        if removed:
+            log.info(f"Post-pipeline cleanup: {removed} overdue row(s) removed")
+        u_removed, u_added = refresh_urgent_tab()
+        log.info(f"Urgent tab refreshed: {u_removed} removed, {u_added} added")
+    except Exception as e:
+        log.warning(f"Post-pipeline urgent/cleanup error: {e}")
+
     return summary

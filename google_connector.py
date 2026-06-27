@@ -15,7 +15,8 @@ from openpyxl.styles import Font, PatternFill, Alignment
 log = logging.getLogger(__name__)
 
 SPREADSHEET_FILE_ID = os.getenv("GOOGLE_SHEETS_ID", "151jig9_3v-__dHfk7TksitJYONDMOLQV")
-SHEET_TAB_NAME      = "Opportunities"   # ← new clean tab name
+SHEET_TAB_NAME      = "Opportunities"
+URGENT_TAB_NAME     = "Urgent"
 
 OUTPUT_COLUMNS = [
     "Solicitation Number",
@@ -348,3 +349,198 @@ def update_progress_reports(row_updates: dict) -> int:
         log.info(f"Updated {count} Progress Report value(s) in master sheet")
 
     return count
+
+
+# ─────────────────────────────────────────────
+# Date helper (single value, no pandas)
+# ─────────────────────────────────────────────
+
+def _parse_date(val):
+    """Parse a cell value to a date object. Returns None if unparseable."""
+    from datetime import date, datetime as dt
+    if val is None:
+        return None
+    if isinstance(val, date) and not isinstance(val, dt):
+        return val
+    if isinstance(val, dt):
+        return val.date()
+    s = str(val).strip()[:10]
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"):
+        try:
+            return dt.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+# ─────────────────────────────────────────────
+# Urgent tab
+# ─────────────────────────────────────────────
+
+def _ensure_urgent_tab(wb):
+    """Return the Urgent worksheet, creating it with headers if needed."""
+    if URGENT_TAB_NAME not in wb.sheetnames:
+        ws = wb.create_sheet(URGENT_TAB_NAME)
+        fill = PatternFill("solid", fgColor="C00000")
+        font = Font(bold=True, color="FFFFFF")
+        for col_idx, col_name in enumerate(OUTPUT_COLUMNS, 1):
+            cell = ws.cell(row=1, column=col_idx, value=col_name)
+            cell.font      = font
+            cell.fill      = fill
+            cell.alignment = Alignment(horizontal="center")
+        widths = [20, 40, 35, 18, 18, 20, 35, 40, 20, 18]
+        for i, w in enumerate(widths, 1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
+        log.info(f"Created '{URGENT_TAB_NAME}' sheet tab")
+    return wb[URGENT_TAB_NAME]
+
+
+def refresh_urgent_tab() -> tuple:
+    """
+    Sync the Urgent sheet tab from the main Opportunities sheet:
+      - Remove rows where due_date < today (expired)
+      - Add rows where today <= due_date < today+10 not already present
+    Returns (removed, added).
+    """
+    from datetime import date, timedelta
+    today        = date.today()
+    urgent_limit = today + timedelta(days=10)
+
+    wb, ws_main, _ = _open_master()
+    ws_urg = _ensure_urgent_tab(wb)
+
+    # Column index helpers for main sheet
+    main_hdrs = {
+        str(ws_main.cell(1, c).value or "").strip(): c
+        for c in range(1, ws_main.max_column + 1)
+    }
+    def _mc(name): return main_hdrs.get(name)
+
+    due_col  = _mc("Due Date")
+    sol_col  = _mc("Solicitation Number")
+    link_col = _mc("UiLink")
+
+    # Collect urgent-window rows from main sheet
+    candidate_rows = []   # list of (sol, link, [cell values])
+    for r in range(2, ws_main.max_row + 1):
+        due = _parse_date(ws_main.cell(r, due_col).value) if due_col else None
+        if due and today <= due < urgent_limit:
+            sol  = str(ws_main.cell(r, sol_col).value  or "").strip() if sol_col  else ""
+            link = str(ws_main.cell(r, link_col).value or "").strip() if link_col else ""
+            vals = [ws_main.cell(r, c).value for c in range(1, len(OUTPUT_COLUMNS) + 1)]
+            candidate_rows.append((sol, link, vals))
+
+    # Column helpers for Urgent tab
+    urg_hdrs = {
+        str(ws_urg.cell(1, c).value or "").strip(): c
+        for c in range(1, ws_urg.max_column + 1)
+    }
+    def _uc(name): return urg_hdrs.get(name)
+
+    urg_due_col  = _uc("Due Date")
+    urg_sol_col  = _uc("Solicitation Number")
+    urg_link_col = _uc("UiLink")
+
+    # Scan Urgent tab: collect existing keys and mark expired rows for deletion
+    existing_sols  = set()
+    existing_links = set()
+    to_delete = []
+
+    for r in range(2, ws_urg.max_row + 1):
+        due = _parse_date(ws_urg.cell(r, urg_due_col).value) if urg_due_col else None
+        if not due:
+            continue
+        if due < today:
+            to_delete.append(r)
+            continue
+        if urg_sol_col:
+            v = str(ws_urg.cell(r, urg_sol_col).value or "").strip()
+            if v: existing_sols.add(v)
+        if urg_link_col:
+            v = str(ws_urg.cell(r, urg_link_col).value or "").strip()
+            if v: existing_links.add(v)
+
+    # Delete expired rows (reverse order to keep row numbers stable)
+    for r in sorted(to_delete, reverse=True):
+        ws_urg.delete_rows(r)
+    removed = len(to_delete)
+
+    # Find next empty row
+    last_r = 1
+    for r in range(ws_urg.max_row, 1, -1):
+        if any(ws_urg.cell(r, c).value for c in range(1, len(OUTPUT_COLUMNS) + 2)):
+            last_r = r
+            break
+
+    # Append new urgent rows
+    added = 0
+    for sol, link, vals in candidate_rows:
+        is_dupe = (sol and sol in existing_sols) or (link and link in existing_links)
+        if not is_dupe:
+            last_r += 1
+            for c, v in enumerate(vals, 1):
+                ws_urg.cell(last_r, c, v)
+            if sol:  existing_sols.add(sol)
+            if link: existing_links.add(link)
+            added += 1
+
+    _save_and_upload(wb)
+    log.info(f"Urgent tab: {removed} expired removed, {added} new rows added")
+    return removed, added
+
+
+def read_urgent_tab():
+    """Return the Urgent sheet tab as a DataFrame."""
+    import pandas as pd
+    raw = download_drive_file(SPREADSHEET_FILE_ID)
+    wb  = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    if URGENT_TAB_NAME not in wb.sheetnames:
+        wb.close()
+        return pd.DataFrame(columns=OUTPUT_COLUMNS)
+    ws = wb[URGENT_TAB_NAME]
+    rows = list(ws.iter_rows(values_only=True))
+    wb.close()
+    if not rows:
+        return pd.DataFrame(columns=OUTPUT_COLUMNS)
+    headers = [str(v) if v is not None else f"Col{i}" for i, v in enumerate(rows[0])]
+    data    = [list(r) for r in rows[1:] if any(v is not None for v in r)]
+    df = pd.DataFrame(data, columns=headers)
+    if "Progress Report" in df.columns:
+        df["Progress Report"] = df["Progress Report"].fillna("").astype(str).replace("None", "")
+    return df
+
+
+# ─────────────────────────────────────────────
+# Overdue cleanup (main sheet)
+# ─────────────────────────────────────────────
+
+def cleanup_overdue_rows() -> int:
+    """
+    Delete rows from the main sheet where:
+      - due_date is more than 5 days in the past
+      - Progress Report is empty
+    Returns number of rows deleted.
+    """
+    from datetime import date, timedelta
+    cutoff = date.today() - timedelta(days=5)
+
+    wb, ws, _ = _open_master()
+    hdrs = {str(ws.cell(1, c).value or "").strip(): c for c in range(1, ws.max_column + 1)}
+    due_col  = hdrs.get("Due Date")
+    prog_col = hdrs.get("Progress Report")
+
+    to_delete = []
+    for r in range(2, ws.max_row + 1):
+        due  = _parse_date(ws.cell(r, due_col).value) if due_col  else None
+        prog = str(ws.cell(r, prog_col).value or "").strip() if prog_col else ""
+        if due and due < cutoff and not prog:
+            to_delete.append(r)
+
+    for r in sorted(to_delete, reverse=True):
+        ws.delete_rows(r)
+
+    if to_delete:
+        _save_and_upload(wb)
+        log.info(f"Cleaned up {len(to_delete)} overdue empty-progress rows")
+
+    return len(to_delete)

@@ -57,12 +57,17 @@ p, label, .stMarkdown, h1, h2, h3, h4 { color: #E6EDF3 !important; }
 """
 
 # -------------------------------------------------
-# Cached sheet loader — shared across all sessions, refreshes every 10 min
+# Cached sheet loaders — refreshes every 2 min so changes are visible quickly
 # -------------------------------------------------
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def _fetch_solicitations():
     from google_connector import read_master_sheet
     return read_master_sheet()
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _fetch_urgent():
+    from google_connector import read_urgent_tab
+    return read_urgent_tab()
 
 
 # -------------------------------------------------
@@ -78,8 +83,9 @@ if "app_initialized" not in st.session_state:
     st.session_state["activity_log"] = []
     st.session_state["dark_mode"] = False
     try:
-        from agent_state import sync_from_gist
+        from agent_state import sync_from_gist, log_user_activity
         sync_from_gist()
+        log_user_activity(st.session_state.get("username", "unknown"), "login")
     except Exception:
         pass
 else:
@@ -105,6 +111,11 @@ with st.sidebar:
     st.divider()
     if st.button("Sign Out", use_container_width=True):
         from auth import clear_auth_cookie
+        try:
+            from agent_state import log_user_activity
+            log_user_activity(st.session_state.get("username", "unknown"), "logout")
+        except Exception:
+            pass
         clear_auth_cookie()
         for key in list(st.session_state.keys()):
             del st.session_state[key]
@@ -899,6 +910,15 @@ def show_operations():
             if st.button("Launch →", key="op_admin", use_container_width=True):
                 goto("admin")
 
+        with c6:
+            _ops_card(
+                "amber", "👥",
+                "Staff",
+                "Track user activity: logins, session hours, and progress report updates per user.",
+            )
+            if st.button("Launch →", key="op_staff", use_container_width=True):
+                goto("staff")
+
 
 # -------------------------------------------------
 # SOLICITATIONS PAGE
@@ -1074,12 +1094,26 @@ def _sol_filter_and_table(df):
             )
 
             _save_result: dict = {}
+            _actor = st.session_state.get("username", "unknown")
 
-            def _bg_save(u=updates, r=_save_result):
+            # Capture changed statuses for activity logging
+            _changed = []
+            full_df_snap = st.session_state["sol_data"]
+            for df_idx, new_val in updates.items():
+                row_pos = df_idx - 2  # sheet row → df index
+                sol_num = full_df_snap.iloc[row_pos].get("Solicitation Number", "") if row_pos < len(full_df_snap) else ""
+                old_val = str(original_prog.iloc[row_pos] if row_pos < len(original_prog) else "")
+                _changed.append({"solicitation": str(sol_num), "old_status": old_val, "new_status": str(new_val)})
+
+            def _bg_save(u=updates, r=_save_result, actor=_actor, changed=_changed):
                 try:
                     from google_connector import update_progress_reports
                     r["count"] = update_progress_reports(u)
                     r["ok"] = True
+                    # Log each status change
+                    from agent_state import log_user_activity
+                    for ch in changed:
+                        log_user_activity(actor, "progress_update", ch)
                 except Exception as exc:
                     r["error"] = str(exc)
 
@@ -1165,7 +1199,37 @@ def show_solicitations():
         st.info("No solicitations found in the master sheet yet.")
         return
 
-    _sol_filter_and_table(df)
+    tab_all, tab_urgent = st.tabs(["📋 All Solicitations", "🚨 Urgent (< 10 days)"])
+
+    with tab_all:
+        _sol_filter_and_table(df)
+
+    with tab_urgent:
+        # Refresh Urgent sheet tab + clear expired in background when user opens it
+        if st.button("🔄 Refresh Urgent", key="refresh_urgent"):
+            def _bg_urgent():
+                try:
+                    from google_connector import refresh_urgent_tab, cleanup_overdue_rows
+                    cleanup_overdue_rows()
+                    refresh_urgent_tab()
+                    _fetch_urgent.clear()
+                except Exception:
+                    pass
+            threading.Thread(target=_bg_urgent, daemon=True).start()
+            _fetch_urgent.clear()
+            st.toast("🔄 Urgent tab refreshed")
+
+        try:
+            df_urgent = _fetch_urgent()
+        except Exception as e:
+            st.error(f"Could not load Urgent tab: {e}")
+            df_urgent = None
+
+        if df_urgent is None or df_urgent.empty:
+            st.info("No urgent solicitations right now — all due dates are 10+ days away or the tab hasn't been populated yet. Run the pipeline or click Refresh Urgent above.")
+        else:
+            st.caption(f"**{len(df_urgent)}** solicitation(s) due within the next 10 days.")
+            st.dataframe(df_urgent, use_container_width=True, hide_index=True)
 
 
 # -------------------------------------------------
@@ -1297,39 +1361,62 @@ def show_autonomous_agent():
 
     # ── Tab 1: Run / Control ──────────────────────────────────
     with tab_run:
+        from agent_state import is_pipeline_running, set_pipeline_running, clear_pipeline_running
+        _is_admin = st.session_state.get("role") == "admin"
+        _actor    = st.session_state.get("username", "unknown")
+
         st.markdown("<div class='app-card'>", unsafe_allow_html=True)
         st.markdown(
             """
             **How it works:**
             - **GitHub Actions fires automatically every 4 hours** (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC)
               using GitHub's own servers — no server of yours needs to stay awake.
-            - If you click **Run Latest Update**, the agent checks Drive for any files
-              it hasn't processed yet. Already-processed files are always skipped —
-              so a manual run never double-counts data.
+            - Already-processed files are always skipped — a manual run never double-counts data.
             - Only solicitations due **10 or more days from today** are extracted.
-            - Every run saves its result to disk, so the dashboard is always up-to-date
-              even after a server restart.
             """,
             unsafe_allow_html=True,
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
-        col_btn, col_reset, col_dv, col_sol = st.columns([3, 2, 2, 2])
-        with col_btn:
-            run_now = st.button("▶ Run Latest Update", type="primary", use_container_width=True)
-        with col_reset:
-            reset_btn = st.button(
-                "🔄 Reset Seen Files", type="secondary", use_container_width=True,
-                help="Clears the processed-file memory. The next run will re-process ALL files."
+        # ── Pipeline lock banner ──────────────────────────────
+        _locked, _lock_user, _lock_ts = is_pipeline_running()
+        if _locked:
+            try:
+                _lock_ts_fmt = datetime.fromisoformat(_lock_ts).strftime("%H:%M UTC")
+            except Exception:
+                _lock_ts_fmt = _lock_ts or "?"
+            st.warning(
+                f"⏳ **Pipeline is currently running** — started by **{_lock_user}** at {_lock_ts_fmt}. "
+                "Please wait for it to finish before starting another run."
             )
-        with col_dv:
-            apply_dv = st.button(
-                "Apply Dropdown to Sheet", type="secondary", use_container_width=True,
-                help="Re-applies the Progress Report dropdown validation to the master sheet."
-            )
-        with col_sol:
-            if st.button("📋 View Solicitations", type="secondary", use_container_width=True,
-                         help="Go to the Solicitations sheet"):
+
+        # ── Admin-only controls ───────────────────────────────
+        if _is_admin:
+            col_btn, col_reset, col_dv, col_sol = st.columns([3, 2, 2, 2])
+            with col_btn:
+                run_now = st.button(
+                    "▶ Run Latest Update", type="primary",
+                    use_container_width=True, disabled=_locked
+                )
+            with col_reset:
+                reset_btn = st.button(
+                    "🔄 Reset Seen Files", type="secondary", use_container_width=True,
+                    help="Clears the processed-file memory. The next run will re-process ALL files.",
+                    disabled=_locked,
+                )
+            with col_dv:
+                apply_dv = st.button(
+                    "Apply Dropdown to Sheet", type="secondary", use_container_width=True,
+                    help="Re-applies the Progress Report dropdown validation to the master sheet."
+                )
+            with col_sol:
+                if st.button("📋 View Solicitations", type="secondary", use_container_width=True):
+                    goto("solicitations")
+        else:
+            run_now   = False
+            reset_btn = False
+            apply_dv  = False
+            if st.button("📋 View Solicitations", type="primary", use_container_width=True):
                 goto("solicitations")
 
         if reset_btn:
@@ -1354,12 +1441,12 @@ def show_autonomous_agent():
             def _cb(msg):
                 progress_box.info(f"⏳ {msg}")
 
+            set_pipeline_running(_actor)
             with st.spinner("Running pipeline…"):
                 try:
                     summary = run_pipeline(progress_callback=_cb)
                     progress_box.empty()
 
-                    # Persist the run to disk
                     record_run("manual", summary)
 
                     if summary["errors"]:
@@ -1370,15 +1457,11 @@ def show_autonomous_agent():
                         result_box.info(f"ℹ️ {summary.get('message', 'No new files to process.')}")
                         st.session_state["sol_just_updated"] = True
                     else:
-                        names = ", ".join(
-                            f["name"] for f in summary.get("processed_files", [])
-                        )
+                        names = ", ".join(f["name"] for f in summary.get("processed_files", []))
                         rows  = summary["total_rows_added"]
-                        result_box.success(
-                            f"✅ **{rows} rows** appended from: {names}"
-                        )
-                        # Bust cache so solicitations reloads fresh data from Drive
+                        result_box.success(f"✅ **{rows} rows** appended from: {names}")
                         _fetch_solicitations.clear()
+                        _fetch_urgent.clear()
                         st.session_state.pop("sol_data", None)
                         st.session_state.pop("sol_original_progress", None)
                         st.session_state["sol_just_updated"] = True
@@ -1392,6 +1475,8 @@ def show_autonomous_agent():
                 except Exception as e:
                     progress_box.empty()
                     result_box.error(f"Pipeline failed: {e}")
+                finally:
+                    clear_pipeline_running()
 
         # View solicitations shortcut after a successful run
         if st.session_state.get("sol_just_updated"):
@@ -1863,12 +1948,129 @@ def show_admin():
 
 
 # -------------------------------------------------
+# STAFF PAGE  (admin only)
+# -------------------------------------------------
+def show_staff():
+    import pandas as pd
+    from datetime import datetime as dt, date, timedelta
+    from agent_state import get_user_activity_log
+    from auth import load_users
+
+    if st.session_state.get("role") != "admin":
+        st.error("Access denied.")
+        return
+
+    st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='app-card'><div class='app-title'>Staff</div>"
+        "<div class='app-subtitle'>User activity — logins, session time, and progress report updates.</div></div>",
+        unsafe_allow_html=True,
+    )
+    if st.button("← Back to Operations"):
+        goto("operations")
+
+    # ── Date range filter ─────────────────────────────────────
+    st.write("")
+    fc1, fc2 = st.columns(2)
+    with fc1:
+        from_date = st.date_input("From", value=date.today() - timedelta(days=30), key="staff_from")
+    with fc2:
+        to_date = st.date_input("To", value=date.today(), key="staff_to")
+
+    from_dt = dt.combine(from_date, dt.min.time())
+    to_dt   = dt.combine(to_date,   dt.max.time())
+
+    all_log = get_user_activity_log(from_dt=from_dt, to_dt=to_dt)
+    users   = load_users()
+    usernames = [u["username"] for u in users]
+
+    _STATUSES = [
+        "Bid Submitted", "Bid InProgress", "Sub Contractor Inquiry",
+        "Bid Past Due Date", "Bid Quote Requested",
+    ]
+
+    # ── Summary table ─────────────────────────────────────────
+    st.divider()
+    st.subheader("Summary by User")
+
+    rows = []
+    for uname in usernames:
+        u_log = [e for e in all_log if e.get("username") == uname]
+
+        logins   = [e for e in u_log if e.get("action") == "login"]
+        logouts  = [e for e in u_log if e.get("action") == "logout"]
+        updates  = [e for e in u_log if e.get("action") == "progress_update"]
+
+        # Estimate hours: pair each login with the next logout (or cap at 2h)
+        login_times  = sorted([e["timestamp"] for e in logins])
+        logout_times = sorted([e["timestamp"] for e in logouts])
+        total_mins   = 0
+        li = 0
+        for lt in logout_times:
+            while li < len(login_times) and login_times[li] < lt:
+                li += 1
+            if li > 0:
+                try:
+                    gap = (dt.fromisoformat(lt) - dt.fromisoformat(login_times[li - 1])).total_seconds() / 60
+                    total_mins += min(gap, 120)   # cap single session at 2h
+                except Exception:
+                    pass
+        # Orphaned logins (no logout): credit 15 min each
+        total_mins += max(0, len(logins) - len(logouts)) * 15
+
+        status_counts = {s: sum(1 for e in updates if e.get("new_status") == s) for s in _STATUSES}
+
+        row = {
+            "User":          uname,
+            "Logins":        len(logins),
+            "Active Hours":  f"{total_mins / 60:.1f}h",
+            "Total Updates": len(updates),
+        }
+        row.update(status_counts)
+        rows.append(row)
+
+    if rows:
+        df_summary = pd.DataFrame(rows)
+        st.dataframe(df_summary, use_container_width=True, hide_index=True)
+    else:
+        st.info("No activity recorded in the selected date range.")
+
+    # ── Detailed activity log ─────────────────────────────────
+    st.divider()
+    st.subheader("Detailed Activity Log")
+
+    user_filter = st.selectbox("Filter by user", ["All"] + usernames, key="staff_user_filter")
+    action_filter = st.selectbox(
+        "Filter by action", ["All", "login", "logout", "progress_update"],
+        key="staff_action_filter"
+    )
+
+    filtered = all_log
+    if user_filter != "All":
+        filtered = [e for e in filtered if e.get("username") == user_filter]
+    if action_filter != "All":
+        filtered = [e for e in filtered if e.get("action") == action_filter]
+
+    if filtered:
+        df_log = pd.DataFrame(filtered)
+        # Friendly timestamp
+        if "timestamp" in df_log.columns:
+            df_log["timestamp"] = pd.to_datetime(df_log["timestamp"]).dt.strftime("%b %d, %Y  %H:%M UTC")
+        st.dataframe(df_log, use_container_width=True, hide_index=True)
+        st.caption(f"{len(filtered)} event(s)")
+    else:
+        st.info("No events match the selected filters.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# -------------------------------------------------
 # ROUTER
 # -------------------------------------------------
 page = st.session_state.page
 _role = st.session_state.get("role", "user")
 
-# Regular users can only access welcome, landing (redirects them), and solicitations
+# Regular users can only access welcome, landing, and solicitations
 _USER_PAGES = {"welcome", "landing", "solicitations"}
 if _role != "admin" and page not in _USER_PAGES:
     goto("solicitations")
@@ -1891,3 +2093,5 @@ elif page == "autonomous":
     show_autonomous_agent()
 elif page == "admin":
     show_admin()
+elif page == "staff":
+    show_staff()

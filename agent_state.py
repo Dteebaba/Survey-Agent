@@ -38,6 +38,8 @@ def _default() -> dict:
         "total_files_processed":    0,
         "run_log":                  [],
         "errors":                   [],
+        "pipeline_lock":            {"running": False},
+        "user_activity_log":        [],
     }
 
 
@@ -307,3 +309,72 @@ def get_summary() -> dict:
 def reset_state():
     """Full reset — next run will process ALL files from scratch."""
     _save(_default())
+
+
+# ─────────────────────────────────────────────
+# Pipeline lock
+# ─────────────────────────────────────────────
+
+def set_pipeline_running(username: str):
+    state = _load()
+    state["pipeline_lock"] = {
+        "running":    True,
+        "username":   username,
+        "started_at": datetime.utcnow().isoformat(),
+    }
+    _save(state)
+
+
+def clear_pipeline_running():
+    state = _load()
+    state["pipeline_lock"] = {"running": False}
+    _save(state)
+
+
+def is_pipeline_running() -> tuple:
+    """Returns (is_running: bool, username: str|None, started_at: str|None)."""
+    lock = _load().get("pipeline_lock", {})
+    if lock.get("running"):
+        return True, lock.get("username", "?"), lock.get("started_at", "")
+    return False, None, None
+
+
+# ─────────────────────────────────────────────
+# User activity log
+# ─────────────────────────────────────────────
+
+def log_user_activity(username: str, action: str, details: dict = None):
+    """
+    Log a user action. action examples:
+      "login", "logout", "progress_update"
+    details for progress_update:
+      {"solicitation": str, "old_status": str, "new_status": str}
+    """
+    state = _load()
+    entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "username":  username,
+        "action":    action,
+    }
+    if details:
+        entry.update(details)
+    state["user_activity_log"].append(entry)
+    if len(state["user_activity_log"]) > 20000:
+        state["user_activity_log"] = state["user_activity_log"][-20000:]
+    _save(state)
+
+
+def get_user_activity_log(
+    username: str = None,
+    from_dt: datetime = None,
+    to_dt: datetime = None,
+) -> list:
+    """Return activity log, most recent first, with optional filters."""
+    entries = _load().get("user_activity_log", [])
+    if username:
+        entries = [e for e in entries if e.get("username") == username]
+    if from_dt:
+        entries = [e for e in entries if e.get("timestamp", "") >= from_dt.isoformat()]
+    if to_dt:
+        entries = [e for e in entries if e.get("timestamp", "") <= to_dt.isoformat()]
+    return list(reversed(entries))
