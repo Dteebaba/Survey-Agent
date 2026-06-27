@@ -1500,10 +1500,22 @@ def show_autonomous_agent():
 
     # ── Tab 2: Run History ────────────────────────────────────
     with tab_history:
+        # Always pull fresh state from Gist so GitHub Actions runs are visible
+        _sync_col, _ = st.columns([1, 4])
+        with _sync_col:
+            if st.button("🔄 Sync State", help="Pull latest run data from the cloud"):
+                try:
+                    from agent_state import sync_from_gist
+                    sync_from_gist()
+                    s = get_summary()
+                    st.toast("✅ State synced")
+                except Exception as _se:
+                    st.warning(f"Sync failed: {_se}")
+
         run_log = s.get("run_log", [])
 
         if not run_log:
-            st.info("No run history yet. The log will fill up after the first pipeline run.")
+            st.info("No run history yet — click Sync State to pull the latest data, or trigger a run.")
         else:
             table_rows = []
             for entry in run_log:

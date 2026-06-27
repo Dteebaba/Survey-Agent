@@ -96,15 +96,33 @@ def _load_df(file_id: str, file_name: str) -> pd.DataFrame:
 
 def _apply_filter(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
+    total = len(out)
+
     if "Normalized Set Aside" in out.columns:
         out = out[out["Normalized Set Aside"].isin(QUALIFYING_SET_ASIDES)]
+        log.info(f"  Set-aside filter: {len(out)}/{total} rows qualify "
+                 f"(values seen: {df['Normalized Set Aside'].value_counts().to_dict()})")
+    else:
+        log.warning("  'Normalized Set Aside' column missing — set-aside filter skipped")
+
     if "Due Date" in out.columns:
         out["Due Date"] = force_date(out["Due Date"])
-        # Keep solicitations with at least 10 days remaining so there is
-        # enough time to prepare a bid response.
         cutoff = datetime.utcnow().date() + timedelta(days=10)
+        before_date = len(out)
         out = out.dropna(subset=["Due Date"])
         out = out[out["Due Date"] >= cutoff]
+        log.info(f"  Date filter (due >= {cutoff}): {len(out)}/{before_date} rows qualify "
+                 f"(dropped {before_date - len(out)} rows)")
+        if before_date > 0 and len(out) == 0:
+            # Log the actual date range in the data so we can diagnose over-filtering
+            all_dates = force_date(df["Due Date"].dropna())
+            if not all_dates.empty:
+                log.warning(f"  ⚠ All rows filtered by date. "
+                            f"Data range: {all_dates.min()} → {all_dates.max()} "
+                            f"(cutoff = {cutoff})")
+    else:
+        log.warning("  'Due Date' column missing — date filter skipped")
+
     return out
 
 

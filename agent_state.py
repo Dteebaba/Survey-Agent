@@ -81,19 +81,23 @@ def _load_from_gist() -> dict | None:
 def _save_to_gist(state: dict):
     if not _GIST_ID or not _GIST_TOKEN:
         return
-    try:
-        resp = requests.patch(
-            f"https://api.github.com/gists/{_GIST_ID}",
-            headers=_gist_headers(),
-            json={"files": {GIST_FILE: {"content": json.dumps(state, indent=2)}}},
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            print("[agent_state] ✅ State saved to Gist")
-        else:
-            print(f"[agent_state] ⚠️  Gist save returned {resp.status_code}")
-    except Exception as e:
-        print(f"[agent_state] Gist save error: {e}")
+    payload = {"files": {GIST_FILE: {"content": json.dumps(state, indent=2)}}}
+    for attempt in range(3):
+        try:
+            resp = requests.patch(
+                f"https://api.github.com/gists/{_GIST_ID}",
+                headers=_gist_headers(),
+                json=payload,
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                print("[agent_state] ✅ State saved to Gist")
+                return
+            else:
+                print(f"[agent_state] ⚠️  Gist save attempt {attempt+1} returned {resp.status_code}")
+        except Exception as e:
+            print(f"[agent_state] Gist save attempt {attempt+1} error: {e}")
+    print("[agent_state] ❌ Gist save failed after 3 attempts")
 
 
 # ─────────────────────────────────────────────
@@ -127,10 +131,11 @@ def _load() -> dict:
     return _load_local() or _default()
 
 
-def _save(state: dict):
-    """Write to local file and push to Gist."""
+def _save(state: dict, gist: bool = True):
+    """Write to local file and optionally push to Gist."""
     _save_local(state)
-    _save_to_gist(state)
+    if gist:
+        _save_to_gist(state)
 
 
 # ─────────────────────────────────────────────
@@ -206,7 +211,7 @@ def mark_file_seen(file_id: str, file_name: str, rows_added: int, status: str = 
     if len(state["processed_files"]) > 500:
         state["processed_files"] = state["processed_files"][-500:]
 
-    _save(state)
+    _save(state, gist=False)   # local only — record_run() does the single Gist write
 
 
 # ─────────────────────────────────────────────
