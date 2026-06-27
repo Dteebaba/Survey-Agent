@@ -1858,8 +1858,22 @@ def show_admin():
         """,
         unsafe_allow_html=True,
     )
-    if st.button("← Back to Operations"):
-        goto("operations")
+    _back_col, _doc_col = st.columns([3, 2])
+    with _back_col:
+        if st.button("← Back to Operations"):
+            goto("operations")
+    with _doc_col:
+        try:
+            _guide_text = open("SYSTEM_GUIDE.md", "r", encoding="utf-8").read()
+            st.download_button(
+                "📄 Download System Guide",
+                data=_guide_text.encode("utf-8"),
+                file_name="Almor_Survey_Agent_System_Guide.md",
+                mime="text/markdown",
+                use_container_width=True,
+            )
+        except Exception:
+            pass
 
     tab1, tab2 = st.tabs(["👥 User Management", "📊 Activity Logs"])
 
