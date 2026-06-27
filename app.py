@@ -4,7 +4,6 @@ import hashlib
 import threading
 from pathlib import Path
 import streamlit as st
-import streamlit.components.v1 as components
 
 # Initialize default admin on first run
 from init_admin import create_default_admin
@@ -1255,6 +1254,33 @@ def show_solicitations():
             st.dataframe(df_urgent, use_container_width=True, hide_index=True)
 
 
+@st.fragment(run_every=1)
+def _countdown_fragment():
+    import datetime as _dt
+    now = _dt.datetime.utcnow()
+    next_h = (now.hour // 4 + 1) * 4
+    if next_h >= 24:
+        next_dt = (now + _dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        next_dt = now.replace(hour=next_h, minute=0, second=0, microsecond=0)
+    total_secs = max(0, int((next_dt - now).total_seconds()))
+    hh, rem = divmod(total_secs, 3600)
+    mm, ss = divmod(rem, 60)
+    next_label = f"{next_h % 24:02d}:00 UTC"
+    ct = f"{hh:02d}:{mm:02d}:{ss:02d}"
+    st.markdown(
+        f"""<div style="background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.25);
+border-radius:12px;padding:.85rem 1.4rem;display:flex;align-items:center;gap:2.5rem;flex-wrap:wrap;">
+  <div><div style="font-size:.7rem;color:rgba(180,180,180,.8);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.2rem;">Next Auto-Run</div>
+       <div style="font-size:.9rem;color:rgba(200,200,200,.9);">{next_label}</div></div>
+  <div><div style="font-size:.7rem;color:rgba(180,180,180,.8);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.2rem;">Countdown</div>
+       <div style="font-size:1.7rem;font-weight:700;font-family:monospace;color:#1E90FF;letter-spacing:.05em;">{ct}</div></div>
+  <div style="margin-left:auto;font-size:.8rem;color:rgba(180,180,180,.7);">Runs every <strong>4 hours</strong> automatically.</div>
+</div>""",
+        unsafe_allow_html=True,
+    )
+
+
 # -------------------------------------------------
 # AUTONOMOUS AGENT PAGE  — comprehensive dashboard
 # -------------------------------------------------
@@ -1284,60 +1310,7 @@ def show_autonomous_agent():
         goto("operations")
 
     # ── Countdown to next auto-run ────────────────────────────
-    components.html("""
-<!DOCTYPE html>
-<html>
-<body style="margin:0;padding:0;background:transparent;">
-<div style="
-    background:rgba(30,144,255,0.08);
-    border:1px solid rgba(30,144,255,0.25);
-    border-radius:12px;
-    padding:0.9rem 1.5rem;
-    display:flex;
-    align-items:center;
-    gap:2.5rem;
-    flex-wrap:wrap;
-    font-family:sans-serif;
-">
-  <div>
-    <div style="font-size:0.7rem;color:#aaa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.2rem;">Next Auto-Run</div>
-    <div id="almor-next-label" style="font-size:0.85rem;color:#ccc;">--:-- UTC</div>
-  </div>
-  <div>
-    <div style="font-size:0.7rem;color:#aaa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.2rem;">Countdown</div>
-    <div id="almor-countdown" style="font-size:1.7rem;font-weight:700;font-family:monospace;color:#1E90FF;letter-spacing:.05em;">--:--:--</div>
-  </div>
-  <div style="margin-left:auto;font-size:0.8rem;color:#aaa;max-width:220px;line-height:1.5;">
-    Runs every <strong style="color:#ddd;">4 hours</strong> automatically.
-  </div>
-</div>
-<script>
-(function(){
-  function nextRun(){
-    var now=new Date();
-    var h=now.getUTCHours();
-    var nextH=(Math.floor(h/4)+1)*4;
-    var d=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate(),nextH%24,0,0,0));
-    if(nextH>=24) d.setUTCDate(d.getUTCDate()+1);
-    return d;
-  }
-  function pad(n){return String(n).padStart(2,'0');}
-  function tick(){
-    var now=new Date(), next=nextRun();
-    var diff=Math.max(0,next-now);
-    var h=Math.floor(diff/3600000);
-    var m=Math.floor((diff%3600000)/60000);
-    var s=Math.floor((diff%60000)/1000);
-    document.getElementById('almor-countdown').textContent=pad(h)+':'+pad(m)+':'+pad(s);
-    document.getElementById('almor-next-label').textContent=pad(next.getUTCHours())+':00 UTC';
-  }
-  tick();
-  setInterval(tick,1000);
-})();
-</script>
-</body>
-</html>
-""", height=90)
+    _countdown_fragment()
 
     # ── Headline metrics ──────────────────────────────────────
     s = get_summary()
@@ -1655,62 +1628,11 @@ def show_autonomous_agent():
     # ── Tab 5: Schedule ───────────────────────────────────────
     with tab_cfg:
         st.subheader("Automatic Schedule")
-        st.write("The agent runs automatically every **4 hours**. Next run countdown:")
-        components.html("""
-<!DOCTYPE html>
-<html>
-<body style="margin:0;padding:0;background:transparent;">
-<div style="
-    background:rgba(30,144,255,0.08);
-    border:1px solid rgba(30,144,255,0.25);
-    border-radius:12px;
-    padding:0.9rem 1.5rem;
-    display:flex;
-    align-items:center;
-    gap:2.5rem;
-    flex-wrap:wrap;
-    font-family:sans-serif;
-">
-  <div>
-    <div style="font-size:0.7rem;color:#aaa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.2rem;">Next Auto-Run</div>
-    <div id="cfg-next-label" style="font-size:0.85rem;color:#ccc;">--:-- UTC</div>
-  </div>
-  <div>
-    <div style="font-size:0.7rem;color:#aaa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.2rem;">Countdown</div>
-    <div id="cfg-countdown" style="font-size:1.7rem;font-weight:700;font-family:monospace;color:#1E90FF;letter-spacing:.05em;">--:--:--</div>
-  </div>
-</div>
-<script>
-(function(){
-  function nextRun(){
-    var now=new Date();
-    var h=now.getUTCHours();
-    var nextH=(Math.floor(h/4)+1)*4;
-    var d=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate(),nextH%24,0,0,0));
-    if(nextH>=24) d.setUTCDate(d.getUTCDate()+1);
-    return d;
-  }
-  function pad(n){return String(n).padStart(2,'0');}
-  function tick(){
-    var now=new Date(), next=nextRun();
-    var diff=Math.max(0,next-now);
-    var h=Math.floor(diff/3600000);
-    var m=Math.floor((diff%3600000)/60000);
-    var s=Math.floor((diff%60000)/1000);
-    document.getElementById('cfg-countdown').textContent=pad(h)+':'+pad(m)+':'+pad(s);
-    document.getElementById('cfg-next-label').textContent=pad(next.getUTCHours())+':00 UTC';
-  }
-  tick();
-  setInterval(tick,1000);
-})();
-</script>
-</body>
-</html>
-""", height=90)
-
+        st.write("The agent runs automatically every **4 hours**.")
+        _countdown_fragment()
         st.write("")
-        _sheet_id2 = os.getenv("GOOGLE_SHEETS_ID", "151jig9_3v-__dHfk7TksitJYONDMOLQV")
-        st.link_button("📋 View Solicitations", f"https://docs.google.com/spreadsheets/d/{_sheet_id2}", use_container_width=False)
+        if st.button("📋 View Solicitations", key="cfg_view_sol"):
+            goto("solicitations")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
