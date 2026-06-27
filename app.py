@@ -1340,10 +1340,6 @@ def show_autonomous_agent():
     c3.metric("Total Files Processed", s["total_files_processed"])
     c4.metric("Total Rows Added",      s["total_rows_added"])
 
-    # ── Quick link to solicitations ───────────────────────────
-    if st.button("📋 View Solicitations", use_container_width=False):
-        goto("solicitations")
-
     # ── Tabbed detail sections ────────────────────────────────
     tab_run, tab_history, tab_files, tab_errors, tab_cfg = st.tabs([
         "▶ Run / Control",
@@ -1358,19 +1354,6 @@ def show_autonomous_agent():
         from agent_state import is_pipeline_running, set_pipeline_running, clear_pipeline_running
         _is_admin = st.session_state.get("role") == "admin"
         _actor    = st.session_state.get("username", "unknown")
-
-        st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-        st.markdown(
-            """
-            **How it works:**
-            - **GitHub Actions fires automatically every 4 hours** (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC)
-              using GitHub's own servers — no server of yours needs to stay awake.
-            - Already-processed files are always skipped — a manual run never double-counts data.
-            - Only solicitations due **10 or more days from today** are extracted.
-            """,
-            unsafe_allow_html=True,
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
 
         # ── Pipeline lock banner ──────────────────────────────
         _locked, _lock_user, _lock_ts = is_pipeline_running()
