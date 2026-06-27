@@ -1275,7 +1275,6 @@ border-radius:12px;padding:.85rem 1.4rem;display:flex;align-items:center;gap:2.5
        <div style="font-size:.9rem;color:rgba(200,200,200,.9);">{next_label}</div></div>
   <div><div style="font-size:.7rem;color:rgba(180,180,180,.8);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.2rem;">Countdown</div>
        <div style="font-size:1.7rem;font-weight:700;font-family:monospace;color:#1E90FF;letter-spacing:.05em;">{ct}</div></div>
-  <div style="margin-left:auto;font-size:.8rem;color:rgba(180,180,180,.7);">Runs every <strong>4 hours</strong> automatically.</div>
 </div>""",
         unsafe_allow_html=True,
     )
@@ -1296,10 +1295,8 @@ def show_autonomous_agent():
         <div class='app-card'>
             <div class='app-title'>Autonomous Agent</div>
             <div class='app-subtitle'>
-                Checks Google Drive for new opportunity files, filters SDVOSB / SDVOSBC / SBA
-                solicitations due within 14&nbsp;days, and appends them to the master sheet.
-                Runs automatically every night at <strong>10 PM ET</strong>.
-                Every run — scheduled or manual — is saved to disk.
+                Scans for new opportunity files and updates the solicitations sheet automatically
+                every&nbsp;<strong>4&nbsp;hours</strong>.
             </div>
         </div>
         """,
