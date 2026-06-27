@@ -4,6 +4,7 @@ import hashlib
 import threading
 from pathlib import Path
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Initialize default admin on first run
 from init_admin import create_default_admin
@@ -992,22 +993,44 @@ def _sol_filter_and_table(df):
         col.metric(label, val)
 
     # ── Filter pills — label includes live count ──
-    pill_options = ["All"] + [
+    # Count urgent items (due within 10 days)
+    _urgent_count = 0
+    if "Due Date" in df.columns:
+        try:
+            from data_engine import force_date
+            _due = force_date(df["Due Date"].copy())
+            import datetime as _dt_mod
+            _today = _dt_mod.date.today()
+            _urgent_count = int((_due.notna() & (_due >= _today) & (_due < _today + _dt_mod.timedelta(days=10))).sum())
+        except Exception:
+            pass
+
+    pill_options = ["All", f"🚨 Urgent  ({_urgent_count})"] + [
         f"{opt}  ({cat_counts.get(opt, 0)})" for opt in _PROGRESS_OPTIONS if opt
     ]
     active_pill = st.pills(
-        "Filter by Progress Report",
+        "Filter",
         options=pill_options,
         selection_mode="single",
         default="All",
         key="sol_filter",
     ) or "All"
 
-    # Strip the count suffix to get the real status string for filtering
-    active_filter = active_pill.split("  (")[0] if active_pill != "All" else "All"
+    # Determine what to filter
+    _is_urgent_pill = active_pill.startswith("🚨 Urgent")
+    active_filter = "All" if _is_urgent_pill else (active_pill.split("  (")[0] if active_pill != "All" else "All")
 
     display_df = df.copy()
-    if active_filter != "All" and has_prog:
+    if _is_urgent_pill and "Due Date" in df.columns:
+        try:
+            from data_engine import force_date as _fd2
+            import datetime as _dt2
+            _d2 = _fd2(display_df["Due Date"].copy())
+            _t2 = _dt2.date.today()
+            display_df = display_df[_d2.notna() & (_d2 >= _t2) & (_d2 < _t2 + _dt2.timedelta(days=10))].reset_index(drop=False)
+        except Exception:
+            display_df = display_df.reset_index(drop=False)
+    elif active_filter != "All" and has_prog:
         display_df = display_df[df["Progress Report"] == active_filter].reset_index(drop=False)
     else:
         display_df = display_df.reset_index(drop=False)
@@ -1261,28 +1284,31 @@ def show_autonomous_agent():
         goto("operations")
 
     # ── Countdown to next auto-run ────────────────────────────
-    st.markdown("""
+    components.html("""
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:transparent;">
 <div style="
     background:rgba(30,144,255,0.08);
     border:1px solid rgba(30,144,255,0.25);
     border-radius:12px;
-    padding:1rem 1.5rem;
+    padding:0.9rem 1.5rem;
     display:flex;
     align-items:center;
-    gap:2rem;
+    gap:2.5rem;
     flex-wrap:wrap;
+    font-family:sans-serif;
 ">
   <div>
-    <div style="font-size:0.75rem;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.25rem;">Next Auto-Run</div>
-    <div id="almor-next-label" style="font-size:0.85rem;color:rgba(255,255,255,0.6);">--:-- UTC</div>
+    <div style="font-size:0.7rem;color:#aaa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.2rem;">Next Auto-Run</div>
+    <div id="almor-next-label" style="font-size:0.85rem;color:#ccc;">--:-- UTC</div>
   </div>
   <div>
-    <div style="font-size:0.75rem;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.25rem;">Countdown</div>
-    <div id="almor-countdown" style="font-size:1.6rem;font-weight:700;font-family:monospace;color:#1E90FF;letter-spacing:.05em;">--:--:--</div>
+    <div style="font-size:0.7rem;color:#aaa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.2rem;">Countdown</div>
+    <div id="almor-countdown" style="font-size:1.7rem;font-weight:700;font-family:monospace;color:#1E90FF;letter-spacing:.05em;">--:--:--</div>
   </div>
-  <div style="margin-left:auto;font-size:0.8rem;color:rgba(255,255,255,0.4);max-width:260px;line-height:1.5;">
-    🤖 Runs every <strong style="color:rgba(255,255,255,0.7);">4 hours</strong> via GitHub Actions.
-    Manual run works anytime below.
+  <div style="margin-left:auto;font-size:0.8rem;color:#aaa;max-width:220px;line-height:1.5;">
+    Runs every <strong style="color:#ddd;">4 hours</strong> automatically.
   </div>
 </div>
 <script>
@@ -1302,16 +1328,16 @@ def show_autonomous_agent():
     var h=Math.floor(diff/3600000);
     var m=Math.floor((diff%3600000)/60000);
     var s=Math.floor((diff%60000)/1000);
-    var el=document.getElementById('almor-countdown');
-    var lb=document.getElementById('almor-next-label');
-    if(el) el.textContent=pad(h)+':'+pad(m)+':'+pad(s);
-    if(lb) lb.textContent=pad(next.getUTCHours())+':00 UTC';
+    document.getElementById('almor-countdown').textContent=pad(h)+':'+pad(m)+':'+pad(s);
+    document.getElementById('almor-next-label').textContent=pad(next.getUTCHours())+':00 UTC';
   }
   tick();
   setInterval(tick,1000);
 })();
 </script>
-""", unsafe_allow_html=True)
+</body>
+</html>
+""", height=90)
 
     # ── Headline metrics ──────────────────────────────────────
     s = get_summary()
@@ -1341,14 +1367,9 @@ def show_autonomous_agent():
     c3.metric("Total Files Processed", s["total_files_processed"])
     c4.metric("Total Rows Added",      s["total_rows_added"])
 
-    # ── Quick Links ───────────────────────────────────────────
-    _folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "1bSGpFbEW09jAq6pdn1i_WO8RUAa3DPUJ")
-    _sheet_id  = os.getenv("GOOGLE_SHEETS_ID",       "151jig9_3v-__dHfk7TksitJYONDMOLQV")
-    ql1, ql2 = st.columns(2)
-    with ql1:
-        st.link_button("📂 Open Google Drive Folder", f"https://drive.google.com/drive/folders/{_folder_id}", use_container_width=True)
-    with ql2:
-        st.link_button("📊 Open Master Sheet", f"https://docs.google.com/spreadsheets/d/{_sheet_id}", use_container_width=True)
+    # ── Quick link to solicitations ───────────────────────────
+    if st.button("📋 View Solicitations", use_container_width=False):
+        goto("solicitations")
 
     # ── Tabbed detail sections ────────────────────────────────
     tab_run, tab_history, tab_files, tab_errors, tab_cfg = st.tabs([
@@ -1531,76 +1552,45 @@ def show_autonomous_agent():
         if not run_log:
             st.info("No run history yet. The log will fill up after the first pipeline run.")
         else:
-            st.write(f"**{len(run_log)} run(s) recorded** — most recent first")
-            st.write("")
-
-            for entry in run_log:   # already most-recent-first
+            table_rows = []
+            for entry in run_log:
                 ts = entry.get("timestamp", "")
                 try:
                     ts_fmt = datetime.fromisoformat(ts).strftime("%b %d, %Y  %H:%M UTC")
                 except Exception:
                     ts_fmt = ts
 
-                status_icon = {
+                status_label = {
                     "success":      "✅ Success",
                     "error":        "❌ Error",
                     "no_new_files": "ℹ️ No New Files",
                 }.get(entry.get("status", ""), "—")
 
-                trig    = entry.get("triggered_by", "?").capitalize()
-                f_done  = entry.get("files_processed", 0)
-                rows_added = entry.get("rows_added", 0)
-                label   = f"{status_icon}  ·  {ts_fmt}  ·  {trig}  ·  {f_done} file(s)  ·  {rows_added} rows added"
-
-                with st.expander(label, expanded=False):
-                    msg = entry.get("message", "")
-                    if msg:
-                        st.write(f"**Message:** {msg}")
-
-                    pf = entry.get("processed_files", [])
-                    if pf:
-                        st.write("**Source Sheets processed:**")
-                        pf_rows = []
-                        for item in pf:
-                            if isinstance(item, dict):
-                                pf_rows.append({"Source Sheet": item["name"], "Rows Added": item.get("rows_added", 0)})
-                            else:
-                                pf_rows.append({"Source Sheet": item, "Rows Added": "—"})
-                        st.dataframe(pd.DataFrame(pf_rows), use_container_width=True, hide_index=True)
-
-                    errs = entry.get("errors", [])
-                    if errs:
-                        st.write("**Errors:**")
-                        for err in errs:
-                            st.error(err)
-
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("Files Checked",    entry.get("files_checked", 0))
-                    c2.metric("Files Processed",  f_done)
-                    c3.metric("Rows Added",       rows_added)
-
-            st.write("")
-            run_log_export = []
-            for entry in run_log:
-                pf = entry.get("processed_files", [])
-                sheets = ", ".join(
-                    item["name"] if isinstance(item, dict) else item for item in pf
-                )
-                run_log_export.append({
-                    "Timestamp (UTC)":  entry.get("timestamp", ""),
-                    "Triggered By":     entry.get("triggered_by", ""),
-                    "Status":           entry.get("status", ""),
-                    "Files Checked":    entry.get("files_checked", 0),
+                table_rows.append({
+                    "Date / Time":      ts_fmt,
+                    "Triggered By":     entry.get("triggered_by", "?").capitalize(),
+                    "Status":           status_label,
                     "Files Processed":  entry.get("files_processed", 0),
                     "Rows Added":       entry.get("rows_added", 0),
-                    "Source Sheets":    sheets,
-                    "Message":          entry.get("message", ""),
-                    "Errors":           "; ".join(entry.get("errors", [])),
                 })
+
+            st.dataframe(
+                pd.DataFrame(table_rows),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Date / Time":     st.column_config.TextColumn("Date / Time",    width="medium"),
+                    "Triggered By":    st.column_config.TextColumn("Triggered By",   width="small"),
+                    "Status":          st.column_config.TextColumn("Status",         width="medium"),
+                    "Files Processed": st.column_config.NumberColumn("Files",        width="small"),
+                    "Rows Added":      st.column_config.NumberColumn("Rows Added",   width="small"),
+                },
+            )
+
             col_dl, _ = st.columns([2, 5])
             with col_dl:
-                csv_bytes = pd.DataFrame(run_log_export).to_csv(index=False).encode()
-                st.download_button("Download Run Log CSV", csv_bytes, "run_history.csv", mime="text/csv")
+                csv_bytes = pd.DataFrame(table_rows).to_csv(index=False).encode()
+                st.download_button("⬇ Download Run Log CSV", csv_bytes, "run_history.csv", mime="text/csv")
 
     # ── Tab 3: Processed Files ────────────────────────────────
     with tab_files:
@@ -1662,33 +1652,65 @@ def show_autonomous_agent():
                     ts_fmt = ts
                 st.error(f"[{ts_fmt}]  {err.get('message', '')}")
 
-    # ── Tab 5: Configuration ──────────────────────────────────
+    # ── Tab 5: Schedule ───────────────────────────────────────
     with tab_cfg:
-        folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "1bSGpFbEW09jAq6pdn1i_WO8RUAa3DPUJ")
-        sheet_id  = os.getenv("GOOGLE_SHEETS_ID",       "151jig9_3v-__dHfk7TksitJYONDMOLQV")
+        st.subheader("Automatic Schedule")
+        st.write("The agent runs automatically every **4 hours**. Next run countdown:")
+        components.html("""
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:transparent;">
+<div style="
+    background:rgba(30,144,255,0.08);
+    border:1px solid rgba(30,144,255,0.25);
+    border-radius:12px;
+    padding:0.9rem 1.5rem;
+    display:flex;
+    align-items:center;
+    gap:2.5rem;
+    flex-wrap:wrap;
+    font-family:sans-serif;
+">
+  <div>
+    <div style="font-size:0.7rem;color:#aaa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.2rem;">Next Auto-Run</div>
+    <div id="cfg-next-label" style="font-size:0.85rem;color:#ccc;">--:-- UTC</div>
+  </div>
+  <div>
+    <div style="font-size:0.7rem;color:#aaa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.2rem;">Countdown</div>
+    <div id="cfg-countdown" style="font-size:1.7rem;font-weight:700;font-family:monospace;color:#1E90FF;letter-spacing:.05em;">--:--:--</div>
+  </div>
+</div>
+<script>
+(function(){
+  function nextRun(){
+    var now=new Date();
+    var h=now.getUTCHours();
+    var nextH=(Math.floor(h/4)+1)*4;
+    var d=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate(),nextH%24,0,0,0));
+    if(nextH>=24) d.setUTCDate(d.getUTCDate()+1);
+    return d;
+  }
+  function pad(n){return String(n).padStart(2,'0');}
+  function tick(){
+    var now=new Date(), next=nextRun();
+    var diff=Math.max(0,next-now);
+    var h=Math.floor(diff/3600000);
+    var m=Math.floor((diff%3600000)/60000);
+    var s=Math.floor((diff%60000)/1000);
+    document.getElementById('cfg-countdown').textContent=pad(h)+':'+pad(m)+':'+pad(s);
+    document.getElementById('cfg-next-label').textContent=pad(next.getUTCHours())+':00 UTC';
+  }
+  tick();
+  setInterval(tick,1000);
+})();
+</script>
+</body>
+</html>
+""", height=90)
 
-        st.subheader("How the Agent Works")
-        st.write(
-            "Every **4 hours**, the agent automatically scans your Google Drive folder "
-            "for new opportunity files. It filters for SDVOSB, SDVOSBC, and SBA set-aside solicitations "
-            "with due dates **10 or more days from today**, then appends qualifying rows to the master sheet. "
-            "Files already processed are always skipped — no duplicates, ever."
-        )
-        st.write(
-            "You can also trigger a manual run at any time using the **Run Latest Update** button "
-            "on the Run / Control tab. Manual runs and scheduled runs both write to the same master sheet."
-        )
-        st.write(
-            "Run history and file tracking are saved persistently — the dashboard shows a full record "
-            "of every run even after a server restart."
-        )
-
-        st.divider()
-        st.subheader("Quick Links")
-        st.write(f"- **Google Drive Folder** (source files): [Open Folder](https://drive.google.com/drive/folders/{folder_id})")
-        st.write(f"- **Master Sheet** (output): [Open Sheet](https://docs.google.com/spreadsheets/d/{sheet_id})")
-        st.write("- **Filter:** SDVOSB / SDVOSBC / SBA set-asides · Due within **14 days**")
-        st.write("- **Automatic schedule:** Every **4 hours** (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC)")
+        st.write("")
+        _sheet_id2 = os.getenv("GOOGLE_SHEETS_ID", "151jig9_3v-__dHfk7TksitJYONDMOLQV")
+        st.link_button("📋 View Solicitations", f"https://docs.google.com/spreadsheets/d/{_sheet_id2}", use_container_width=False)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
