@@ -1998,14 +1998,19 @@ def show_staff():
     users   = load_users()
     usernames = [u["username"] for u in users]
 
-    _STATUSES = [
-        "Bid Submitted", "Bid InProgress", "Sub Contractor Inquiry",
-        "Bid Past Due Date", "Bid Quote Requested",
-    ]
+    # Full status name → short display label
+    _STATUS_LABELS = {
+        "Bid Submitted":          "Submitted",
+        "Bid InProgress":         "In Progress",
+        "Sub Contractor Inquiry": "Sub Inquiry",
+        "Bid Past Due Date":      "Past Due",
+        "Bid Quote Requested":    "Quote Req.",
+    }
+    _STATUSES = list(_STATUS_LABELS.keys())
 
     # ── Summary table ─────────────────────────────────────────
     st.divider()
-    st.subheader("Summary by User")
+    st.subheader("Progress Update Counts by User")
 
     rows = []
     for uname in usernames:
@@ -2026,13 +2031,10 @@ def show_staff():
             if li > 0:
                 try:
                     gap = (dt.fromisoformat(lt) - dt.fromisoformat(login_times[li - 1])).total_seconds() / 60
-                    total_mins += min(gap, 120)   # cap single session at 2h
+                    total_mins += min(gap, 120)
                 except Exception:
                     pass
-        # Orphaned logins (no logout): credit 15 min each
         total_mins += max(0, len(logins) - len(logouts)) * 15
-
-        status_counts = {s: sum(1 for e in updates if e.get("new_status") == s) for s in _STATUSES}
 
         row = {
             "User":          uname,
@@ -2040,12 +2042,43 @@ def show_staff():
             "Active Hours":  f"{total_mins / 60:.1f}h",
             "Total Updates": len(updates),
         }
-        row.update(status_counts)
+        for full, short in _STATUS_LABELS.items():
+            row[short] = sum(1 for e in updates if e.get("new_status") == full)
         rows.append(row)
 
     if rows:
         df_summary = pd.DataFrame(rows)
-        st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
+        # Totals row
+        totals = {"User": "TOTAL", "Logins": "", "Active Hours": ""}
+        totals["Total Updates"] = df_summary["Total Updates"].sum()
+        for short in _STATUS_LABELS.values():
+            totals[short] = df_summary[short].sum()
+        df_summary = pd.concat(
+            [df_summary, pd.DataFrame([totals])], ignore_index=True
+        )
+
+        st.dataframe(
+            df_summary,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "User":          st.column_config.TextColumn("User",         width="small"),
+                "Logins":        st.column_config.TextColumn("Logins",       width="small"),
+                "Active Hours":  st.column_config.TextColumn("Active Hrs",   width="small"),
+                "Total Updates": st.column_config.NumberColumn("Total",      width="small"),
+                "Submitted":     st.column_config.NumberColumn("Submitted",  width="small"),
+                "In Progress":   st.column_config.NumberColumn("In Progress",width="small"),
+                "Sub Inquiry":   st.column_config.NumberColumn("Sub Inquiry",width="small"),
+                "Past Due":      st.column_config.NumberColumn("Past Due",   width="small"),
+                "Quote Req.":    st.column_config.NumberColumn("Quote Req.", width="small"),
+            },
+        )
+
+        # Download
+        csv_staff = df_summary.to_csv(index=False).encode()
+        st.download_button("⬇ Download Staff Summary CSV", csv_staff,
+                           "staff_summary.csv", mime="text/csv")
     else:
         st.info("No activity recorded in the selected date range.")
 
