@@ -1037,8 +1037,38 @@ def _sol_filter_and_table(df):
     )
     st.caption("Change any Progress Report dropdown — it saves to the master sheet automatically.")
 
-    # ── Column config ─────────────────────────
+    # ── Delete banner (top — populated after first checkbox tick) ───
     _viewer_is_admin = st.session_state.get("role") == "admin"
+    if _viewer_is_admin:
+        _marked_sheet_rows = st.session_state.get("_sol_delete_marked", [])
+        if _marked_sheet_rows:
+            _db1, _db2, _db3 = st.columns([4, 2, 1])
+            with _db1:
+                st.warning(
+                    f"**{len(_marked_sheet_rows)} row(s) marked for deletion** — this cannot be undone."
+                )
+            with _db2:
+                if st.button(
+                    f"🗑️ Delete {len(_marked_sheet_rows)} row(s)",
+                    type="primary",
+                    key="delete_top_btn",
+                ):
+                    try:
+                        from google_connector import delete_expired_rows as _del_rows
+                        _del_rows(_marked_sheet_rows)
+                        st.session_state.pop("_sol_delete_marked", None)
+                        _fetch_solicitations.clear()
+                        st.session_state.pop("sol_data", None)
+                        st.session_state.pop("sol_original_progress", None)
+                        st.rerun(scope="app")
+                    except Exception as _de:
+                        st.error(f"Delete failed: {_de}")
+            with _db3:
+                if st.button("✕ Clear", key="delete_clear_btn"):
+                    st.session_state.pop("_sol_delete_marked", None)
+                    st.rerun()
+
+    # ── Column config ─────────────────────────
     _cols = display_df.columns.tolist()
     col_cfg = {}
 
@@ -1099,28 +1129,13 @@ def _sol_filter_and_table(df):
         height=560,
     )
 
-    # ── Admin: delete selected rows ───────────
+    # ── Sync delete selection into session_state → triggers banner at top ───
     if _viewer_is_admin and "_delete" in edited_df.columns:
-        selected_positions = [i for i, v in enumerate(edited_df["_delete"]) if v]
-        if selected_positions:
-            selected_df_idxs = [orig_index[i] for i in selected_positions]
-            st.warning(f"{len(selected_positions)} row(s) selected for deletion. This cannot be undone.")
-            if st.button(
-                f"🗑️ Delete {len(selected_positions)} row(s) from sheet",
-                type="primary",
-                key="delete_selected_btn",
-            ):
-                sheet_rows = [r + 2 for r in selected_df_idxs]   # +1 header, +1 for 1-index
-                try:
-                    from google_connector import delete_expired_rows as _del_rows
-                    n = _del_rows(sheet_rows)
-                    _fetch_solicitations.clear()
-                    st.session_state.pop("sol_data", None)
-                    st.session_state.pop("sol_original_progress", None)
-                    st.success(f"✅ {n} row(s) deleted from the master sheet.")
-                    st.rerun(scope="app")
-                except Exception as _de:
-                    st.error(f"Delete failed: {_de}")
+        _newly_marked = [orig_index[i] + 2 for i, v in enumerate(edited_df["_delete"]) if v]
+        _prev_marked  = st.session_state.get("_sol_delete_marked", [])
+        if sorted(_newly_marked) != sorted(_prev_marked):
+            st.session_state["_sol_delete_marked"] = _newly_marked
+            st.rerun()
 
     # ── Auto-save on change ───────────────────
     original_prog = st.session_state.get("sol_original_progress")
