@@ -450,10 +450,7 @@ def show_welcome():
         # Enter button
         st.markdown('<div class="welcome-btn-wrap">', unsafe_allow_html=True)
         if st.button("Enter Workspace →", use_container_width=True, type="primary"):
-            if st.session_state.get("role") == "admin":
-                goto("landing")
-            else:
-                goto("solicitations")
+            goto("landing")
         st.markdown('</div>', unsafe_allow_html=True)
 
         st.write("")
@@ -477,10 +474,6 @@ def show_welcome():
 def show_landing():
     username = st.session_state.get("username", "User")
     role     = st.session_state.get("role", "user")
-
-    if role != "admin":
-        goto("solicitations")
-        return
 
     st.markdown("""
     <style>
@@ -884,12 +877,12 @@ def show_operations():
 
     st.write("")
 
-    # ── Row 2: remaining tools ────────────────────
+    # ── Row 2: AI Tools for all; Admin Console + Staff for admins only ──
     is_admin = st.session_state.get("role") == "admin"
     if is_admin:
         c4, c5, c6 = st.columns(3, gap="medium")
     else:
-        c4, _, _ = st.columns(3, gap="medium")
+        c4, c4b, _ = st.columns(3, gap="medium")
 
     with c4:
         _ops_card(
@@ -1045,8 +1038,18 @@ def _sol_filter_and_table(df):
     st.caption("Change any Progress Report dropdown — it saves to the master sheet automatically.")
 
     # ── Column config ─────────────────────────
+    _viewer_is_admin = st.session_state.get("role") == "admin"
     _cols = display_df.columns.tolist()
     col_cfg = {}
+
+    # Admin delete-selection column (right side)
+    if _viewer_is_admin:
+        display_df = display_df.copy()
+        display_df["_delete"] = False
+        col_cfg["_delete"] = st.column_config.CheckboxColumn(
+            "🗑️", width=38, help="Check rows to delete, then click Delete Selected"
+        )
+
     if "Solicitation Number" in _cols:
         col_cfg["Solicitation Number"] = st.column_config.TextColumn("Sol. #", width=120)
     if "Title" in _cols:
@@ -1077,10 +1080,12 @@ def _sol_filter_and_table(df):
         "Solicitation Number", "Title", "Agency", "Solicitation Date",
         "Due Date", "Opportunity Type", "Normalized Set Aside",
         "Progress Report", "UiLink", "Award Date",
+        "_delete",   # rightmost column for admins
     ]
-    column_order = [c for c in _preferred_order if c in _cols]
-    editable  = ["Progress Report"] if "Progress Report" in _cols else []
-    disabled  = [c for c in _cols if c not in editable]
+    all_cols     = display_df.columns.tolist()
+    column_order = [c for c in _preferred_order if c in all_cols]
+    editable     = (["_delete"] if _viewer_is_admin else []) + (["Progress Report"] if "Progress Report" in _cols else [])
+    disabled     = [c for c in all_cols if c not in editable]
 
     edited_df = st.data_editor(
         display_df,
@@ -1093,6 +1098,29 @@ def _sol_filter_and_table(df):
         key=f"sol_editor_{active_filter}",
         height=560,
     )
+
+    # ── Admin: delete selected rows ───────────
+    if _viewer_is_admin and "_delete" in edited_df.columns:
+        selected_positions = [i for i, v in enumerate(edited_df["_delete"]) if v]
+        if selected_positions:
+            selected_df_idxs = [orig_index[i] for i in selected_positions]
+            st.warning(f"{len(selected_positions)} row(s) selected for deletion. This cannot be undone.")
+            if st.button(
+                f"🗑️ Delete {len(selected_positions)} row(s) from sheet",
+                type="primary",
+                key="delete_selected_btn",
+            ):
+                sheet_rows = [r + 2 for r in selected_df_idxs]   # +1 header, +1 for 1-index
+                try:
+                    from google_connector import delete_expired_rows as _del_rows
+                    n = _del_rows(sheet_rows)
+                    _fetch_solicitations.clear()
+                    st.session_state.pop("sol_data", None)
+                    st.session_state.pop("sol_original_progress", None)
+                    st.success(f"✅ {n} row(s) deleted from the master sheet.")
+                    st.rerun(scope="app")
+                except Exception as _de:
+                    st.error(f"Delete failed: {_de}")
 
     # ── Auto-save on change ───────────────────
     original_prog = st.session_state.get("sol_original_progress")
@@ -2053,9 +2081,9 @@ def show_staff():
 page = st.session_state.page
 _role = st.session_state.get("role", "user")
 
-# Regular users can only access welcome, landing, and solicitations
-_USER_PAGES = {"welcome", "landing", "solicitations"}
-if _role != "admin" and page not in _USER_PAGES:
+# Admin-only pages; all other pages are accessible to any authenticated user
+_ADMIN_ONLY_PAGES = {"admin", "staff"}
+if _role != "admin" and page in _ADMIN_ONLY_PAGES:
     goto("solicitations")
 
 if page == "welcome":
