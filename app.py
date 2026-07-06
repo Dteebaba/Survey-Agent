@@ -1040,39 +1040,64 @@ def _sol_filter_and_table(df):
     # ── Delete controls (admin only) ──────────
     _viewer_is_admin = st.session_state.get("role") == "admin"
     _marked_set      = set()   # used below to pre-fill _delete column
-    _all_sheet_rows  = [i + 2 for i in orig_index]   # always defined (used in bottom sync)
+    _all_sheet_rows  = [i + 2 for i in orig_index]
+    _current_marked  = []      # accurate count for this render (no extra rerun needed)
+
     if _viewer_is_admin:
+        _editor_key        = f"sol_editor_{active_filter}"
         _marked_sheet_rows = st.session_state.get("_sol_delete_marked", [])
         _all_marked        = bool(_all_sheet_rows) and sorted(_marked_sheet_rows) == sorted(_all_sheet_rows)
+        _marked_set        = set(_marked_sheet_rows)
 
-        # Select All checkbox — pre-fills every row's checkbox in the table
+        # Clear selection when filter changes so stale selections don't carry over
+        if st.session_state.get("_sol_prev_filter") != active_filter:
+            st.session_state["_sol_prev_filter"] = active_filter
+            st.session_state.pop("_sol_delete_marked", None)
+            st.session_state["select_all_chk"] = False
+            _marked_sheet_rows = []
+            _marked_set = set()
+
+        # Read editor widget state NOW (before rendering) to get the up-to-date selection.
+        # Streamlit records per-cell edits in session_state[editor_key]["edited_rows"]
+        # as {row_pos: {"_delete": bool}}.  Combining with the pre-filled _marked_set
+        # gives the real current state without needing a second rerun.
+        _edit_map = st.session_state.get(_editor_key, {}).get("edited_rows", {})
+        _current_marked = [
+            orig_index[i] + 2
+            for i in range(len(display_df))
+            if _edit_map.get(i, {}).get("_delete", (orig_index[i] + 2) in _marked_set)
+        ]
+
         _chk_col, _del_col, _spacer = st.columns([2, 2, 6])
         with _chk_col:
             _select_all = st.checkbox("Select all", key="select_all_chk")
 
         if _select_all and not _all_marked:
-            # User just checked Select All → mark every row
             st.session_state["_sol_delete_marked"] = _all_sheet_rows
-            _marked_sheet_rows = _all_sheet_rows
+            # Clear cached edits so pre-fill of True takes full effect
+            st.session_state.pop(_editor_key, None)
+            _marked_set     = set(_all_sheet_rows)
+            _current_marked = _all_sheet_rows
         elif not _select_all and _all_marked:
-            # User explicitly unchecked Select All → clear everything
             st.session_state.pop("_sol_delete_marked", None)
-            _marked_sheet_rows = []
-
-        _marked_set = set(_marked_sheet_rows)
+            st.session_state.pop(_editor_key, None)
+            _marked_set     = set()
+            _current_marked = []
 
         with _del_col:
-            if _marked_sheet_rows:
+            if _current_marked:
                 if st.button(
-                    f"🗑️ Delete {len(_marked_sheet_rows)}",
+                    f"🗑️ Delete {len(_current_marked)}",
                     type="primary",
                     key="delete_top_btn",
                 ):
                     try:
                         with st.spinner("Deleting rows from sheet…"):
                             from google_connector import delete_expired_rows as _del_rows
-                            _del_rows(_marked_sheet_rows)
+                            _del_rows(_current_marked)
                         st.session_state.pop("_sol_delete_marked", None)
+                        st.session_state.pop(_editor_key, None)
+                        st.session_state["select_all_chk"] = False
                         _fetch_solicitations.clear()
                         st.session_state.pop("sol_data", None)
                         st.session_state.pop("sol_original_progress", None)
@@ -1139,16 +1164,18 @@ def _sol_filter_and_table(df):
         height=560,
     )
 
-    # ── Sync row checkboxes → session_state ──────────────────────────────────────
+    # ── Persist selection changes without an extra rerun ─────────────────────────
+    # _current_marked (computed from editor widget state above) is already accurate
+    # for this render. We just keep _sol_delete_marked in sync for full-page-rerun
+    # resilience and update the Select All checkbox state for the next render.
     if _viewer_is_admin and "_delete" in edited_df.columns:
         _newly_marked = [orig_index[i] + 2 for i, v in enumerate(edited_df["_delete"]) if v]
         _prev_marked  = st.session_state.get("_sol_delete_marked", [])
         if sorted(_newly_marked) != sorted(_prev_marked):
             st.session_state["_sol_delete_marked"] = _newly_marked
-            # Keep Select All checkbox in sync: uncheck it when not all rows are selected
             _newly_all = bool(_all_sheet_rows) and sorted(_newly_marked) == sorted(_all_sheet_rows)
             st.session_state["select_all_chk"] = _newly_all
-            st.rerun()
+            # No st.rerun() — the count was already shown correctly via _current_marked
 
     # ── Auto-save on change ───────────────────
     original_prog = st.session_state.get("sol_original_progress")
