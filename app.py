@@ -1038,14 +1038,14 @@ def _sol_filter_and_table(df):
     st.caption("Change any Progress Report dropdown — it saves to the master sheet automatically.")
 
     # ── Delete controls (admin only) ──────────
-    _viewer_is_admin   = st.session_state.get("role") == "admin"
-    _select_all_active = False   # flag used below to skip per-row sync when select-all is on
+    _viewer_is_admin = st.session_state.get("role") == "admin"
+    _marked_set      = set()   # used below to pre-fill _delete column
     if _viewer_is_admin:
         _all_sheet_rows    = [i + 2 for i in orig_index]
         _marked_sheet_rows = st.session_state.get("_sol_delete_marked", [])
         _all_marked        = bool(_all_sheet_rows) and sorted(_marked_sheet_rows) == sorted(_all_sheet_rows)
 
-        # Inline row: checkbox + delete button sit together
+        # Select All checkbox: when checked it pre-fills every row's checkbox in the table
         _chk_col, _del_col, _spacer = st.columns([2, 2, 6])
         with _chk_col:
             _select_all = st.checkbox(
@@ -1053,14 +1053,15 @@ def _sol_filter_and_table(df):
                 value=_all_marked,
                 key="select_all_chk",
             )
-        _select_all_active = _select_all
 
-        if _select_all:
+        if _select_all and not _all_marked:
             st.session_state["_sol_delete_marked"] = _all_sheet_rows
             _marked_sheet_rows = _all_sheet_rows
-        elif _all_marked:
+        elif not _select_all and _all_marked:
             st.session_state.pop("_sol_delete_marked", None)
             _marked_sheet_rows = []
+
+        _marked_set = set(_marked_sheet_rows)
 
         with _del_col:
             if _marked_sheet_rows:
@@ -1070,8 +1071,9 @@ def _sol_filter_and_table(df):
                     key="delete_top_btn",
                 ):
                     try:
-                        from google_connector import delete_expired_rows as _del_rows
-                        _del_rows(_marked_sheet_rows)
+                        with st.spinner("Deleting rows from sheet…"):
+                            from google_connector import delete_expired_rows as _del_rows
+                            _del_rows(_marked_sheet_rows)
                         st.session_state.pop("_sol_delete_marked", None)
                         _fetch_solicitations.clear()
                         st.session_state.pop("sol_data", None)
@@ -1084,13 +1086,11 @@ def _sol_filter_and_table(df):
     _cols = display_df.columns.tolist()
     col_cfg = {}
 
-    # Admin delete-selection column (right side)
+    # Admin delete-selection column — pre-filled from current marked set
     if _viewer_is_admin:
         display_df = display_df.copy()
-        display_df["_delete"] = False
-        col_cfg["_delete"] = st.column_config.CheckboxColumn(
-            "🗑️", width=38, help="Check rows to delete, then click Delete Selected"
-        )
+        display_df["_delete"] = [(orig_index[i] + 2) in _marked_set for i in range(len(display_df))]
+        col_cfg["_delete"] = st.column_config.CheckboxColumn("🗑️", width=38)
 
     if "Solicitation Number" in _cols:
         col_cfg["Solicitation Number"] = st.column_config.TextColumn("Sol. #", width=120)
@@ -1141,8 +1141,8 @@ def _sol_filter_and_table(df):
         height=560,
     )
 
-    # ── Sync per-row checkboxes → session_state (skipped when select-all is on) ───
-    if _viewer_is_admin and "_delete" in edited_df.columns and not _select_all_active:
+    # ── Sync row checkboxes → session_state → updates count at top on next pass ───
+    if _viewer_is_admin and "_delete" in edited_df.columns:
         _newly_marked = [orig_index[i] + 2 for i, v in enumerate(edited_df["_delete"]) if v]
         _prev_marked  = st.session_state.get("_sol_delete_marked", [])
         if sorted(_newly_marked) != sorted(_prev_marked):
