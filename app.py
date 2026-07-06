@@ -1037,15 +1037,30 @@ def _sol_filter_and_table(df):
     )
     st.caption("Change any Progress Report dropdown — it saves to the master sheet automatically.")
 
-    # ── Delete banner (top — populated after first checkbox tick) ───
+    # ── Delete controls (admin only) ──────────
     _viewer_is_admin = st.session_state.get("role") == "admin"
     if _viewer_is_admin:
         _marked_sheet_rows = st.session_state.get("_sol_delete_marked", [])
+        _all_sheet_rows    = [i + 2 for i in orig_index]
+        _all_marked        = bool(_all_sheet_rows) and sorted(_marked_sheet_rows) == sorted(_all_sheet_rows)
+
+        # Select All / Deselect All row
+        _sa1, _sa2 = st.columns([2, 8])
+        with _sa1:
+            _sa_label = "☐ Deselect All" if _all_marked else f"☑ Select All ({len(_all_sheet_rows)})"
+            if st.button(_sa_label, key="select_all_btn"):
+                if _all_marked:
+                    st.session_state.pop("_sol_delete_marked", None)
+                else:
+                    st.session_state["_sol_delete_marked"] = _all_sheet_rows
+                st.rerun()
+
+        # Delete banner — only shown when rows are marked
         if _marked_sheet_rows:
             _db1, _db2, _db3 = st.columns([4, 2, 1])
             with _db1:
                 st.warning(
-                    f"**{len(_marked_sheet_rows)} row(s) marked for deletion** — this cannot be undone."
+                    f"**{len(_marked_sheet_rows)} of {len(_all_sheet_rows)} row(s) marked for deletion** — this cannot be undone."
                 )
             with _db2:
                 if st.button(
