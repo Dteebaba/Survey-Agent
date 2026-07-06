@@ -7,6 +7,7 @@ Uses GOOGLE_ACCESS_TOKEN from Replit Secrets.
 import io
 import logging
 import os
+import time
 import requests
 import openpyxl
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -15,6 +16,26 @@ from openpyxl.styles import Font, PatternFill, Alignment
 log = logging.getLogger(__name__)
 
 SPREADSHEET_FILE_ID = os.getenv("GOOGLE_SHEETS_ID", "151jig9_3v-__dHfk7TksitJYONDMOLQV")
+
+# ── In-process raw-bytes cache ─────────────────────────────────────────────────
+# Avoids re-downloading the full xlsx on every write (Progress Report saves,
+# deletes, appends). TTL is 30 s; _save_and_upload() refreshes it immediately
+# after each upload so reads right after a write still see fresh data.
+_RAW_CACHE: dict = {"data": None, "ts": 0.0}
+_RAW_CACHE_TTL = 30  # seconds
+
+
+def _get_master_bytes() -> bytes:
+    """Return master xlsx bytes, from cache if ≤30 s old."""
+    if _RAW_CACHE["data"] is None or (time.monotonic() - _RAW_CACHE["ts"]) > _RAW_CACHE_TTL:
+        _RAW_CACHE["data"] = download_drive_file(SPREADSHEET_FILE_ID)
+        _RAW_CACHE["ts"]   = time.monotonic()
+    return _RAW_CACHE["data"]
+
+
+def _invalidate_raw_cache() -> None:
+    _RAW_CACHE["data"] = None
+    _RAW_CACHE["ts"]   = 0.0
 SHEET_TAB_NAME      = "Opportunities"
 URGENT_TAB_NAME     = "Urgent"
 
@@ -102,8 +123,8 @@ def upload_drive_file(file_id: str, content: bytes, mime_type: str) -> dict:
 # ─────────────────────────────────────────────
 
 def _open_master() -> tuple:
-    """Download master xlsx for writing. Returns (wb, ws, raw_bytes)."""
-    raw = download_drive_file(SPREADSHEET_FILE_ID)
+    """Load master xlsx for writing (uses byte cache). Returns (wb, ws, raw_bytes)."""
+    raw = _get_master_bytes()
     wb  = openpyxl.load_workbook(io.BytesIO(raw))
 
     # Create fresh tab if it doesn't exist
@@ -121,8 +142,8 @@ def _open_master() -> tuple:
 
 
 def _open_master_readonly():
-    """Download master xlsx in read-only mode (faster, no styles loaded)."""
-    raw = download_drive_file(SPREADSHEET_FILE_ID)
+    """Load master xlsx read-only (uses byte cache, no styles)."""
+    raw = _get_master_bytes()
     wb  = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
     ws  = wb[SHEET_TAB_NAME] if SHEET_TAB_NAME in wb.sheetnames else wb.active
     return wb, ws
@@ -150,12 +171,15 @@ def _write_headers(ws):
 def _save_and_upload(wb) -> None:
     buf = io.BytesIO()
     wb.save(buf)
-    buf.seek(0)
+    data = buf.getvalue()
     upload_drive_file(
         SPREADSHEET_FILE_ID,
-        buf.getvalue(),
+        data,
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+    # Refresh cache with what we just uploaded so the next read is instant
+    _RAW_CACHE["data"] = data
+    _RAW_CACHE["ts"]   = time.monotonic()
     log.info("✅ Master sheet uploaded successfully")
 
 
@@ -166,7 +190,7 @@ def _save_and_upload(wb) -> None:
 def get_existing_dedup_keys() -> tuple:
     """Return (solicitation_numbers, uilinks) already in the sheet."""
     try:
-        _, ws, _ = _open_master()
+        _, ws = _open_master_readonly()
         headers  = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
 
         def _find(name):

@@ -57,14 +57,15 @@ p, label, .stMarkdown, h1, h2, h3, h4 { color: #E6EDF3 !important; }
 """
 
 # -------------------------------------------------
-# Cached sheet loaders — refreshes every 2 min so changes are visible quickly
+# Cached sheet loaders — long TTL because data only changes every 4 h.
+# Manual "Refresh" and post-write code call .clear() for immediate invalidation.
 # -------------------------------------------------
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def _fetch_solicitations():
     from google_connector import read_master_sheet
     return read_master_sheet()
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def _fetch_urgent():
     from google_connector import read_urgent_tab
     return read_urgent_tab()
@@ -83,8 +84,9 @@ if "app_initialized" not in st.session_state:
     st.session_state["activity_log"] = []
     st.session_state["dark_mode"] = False
     try:
+        import threading as _threading
         from agent_state import sync_from_gist, log_user_activity
-        sync_from_gist()
+        _threading.Thread(target=sync_from_gist, daemon=True).start()
         log_user_activity(st.session_state.get("username", "unknown"), "login")
     except Exception:
         pass
@@ -985,14 +987,15 @@ def _sol_filter_and_table(df):
         col.metric(label, val)
 
     # ── Filter pills — label includes live count ──
-    # Count urgent items (due within 10 days)
+    # Compute parsed due dates once; reused for both the pill count and urgent filter.
+    import datetime as _dt_mod
+    _today        = _dt_mod.date.today()
+    _due          = None
     _urgent_count = 0
     if "Due Date" in df.columns:
         try:
             from data_engine import force_date
-            _due = force_date(df["Due Date"].copy())
-            import datetime as _dt_mod
-            _today = _dt_mod.date.today()
+            _due          = force_date(df["Due Date"].copy())
             _urgent_count = int((_due.notna() & (_due >= _today) & (_due < _today + _dt_mod.timedelta(days=10))).sum())
         except Exception:
             pass
@@ -1013,15 +1016,12 @@ def _sol_filter_and_table(df):
     active_filter = "All" if _is_urgent_pill else (active_pill.split("  (")[0] if active_pill != "All" else "All")
 
     display_df = df.copy()
-    if _is_urgent_pill and "Due Date" in df.columns:
-        try:
-            from data_engine import force_date as _fd2
-            import datetime as _dt2
-            _d2 = _fd2(display_df["Due Date"].copy())
-            _t2 = _dt2.date.today()
-            display_df = display_df[_d2.notna() & (_d2 >= _t2) & (_d2 < _t2 + _dt2.timedelta(days=10))].reset_index(drop=False)
-        except Exception:
-            display_df = display_df.reset_index(drop=False)
+    if _is_urgent_pill and _due is not None:
+        display_df = display_df[
+            _due.notna() & (_due >= _today) & (_due < _today + _dt_mod.timedelta(days=10))
+        ].reset_index(drop=False)
+    elif _is_urgent_pill:
+        display_df = display_df.reset_index(drop=False)
     elif active_filter != "All" and has_prog:
         display_df = display_df[df["Progress Report"] == active_filter].reset_index(drop=False)
     else:
@@ -1042,9 +1042,9 @@ def _sol_filter_and_table(df):
     _marked_set      = set()   # used below to pre-fill _delete column
     _all_sheet_rows  = [i + 2 for i in orig_index]
     _current_marked  = []      # accurate count for this render (no extra rerun needed)
+    _editor_key      = f"sol_editor_{active_filter}"   # used by delete AND prog-report fast-path
 
     if _viewer_is_admin:
-        _editor_key        = f"sol_editor_{active_filter}"
         _marked_sheet_rows = st.session_state.get("_sol_delete_marked", [])
         _all_marked        = bool(_all_sheet_rows) and sorted(_marked_sheet_rows) == sorted(_all_sheet_rows)
         _marked_set        = set(_marked_sheet_rows)
@@ -1179,6 +1179,13 @@ def _sol_filter_and_table(df):
 
     # ── Auto-save on change ───────────────────
     original_prog = st.session_state.get("sol_original_progress")
+    if original_prog is not None and "Progress Report" in edited_df.columns:
+        # Fast-path: skip O(N) scan if edited_rows has no Progress Report edits
+        _edited_rows_map = st.session_state.get(_editor_key, {}).get("edited_rows", {})
+        _has_prog_edit   = any("Progress Report" in v for v in _edited_rows_map.values())
+        if not _has_prog_edit:
+            original_prog = None   # nothing changed — skip the block below
+
     if original_prog is not None and "Progress Report" in edited_df.columns:
         updates = {}
         for pos, (df_idx, new_val) in enumerate(
