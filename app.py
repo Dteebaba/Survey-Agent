@@ -1045,13 +1045,15 @@ def _sol_filter_and_table(df):
 
     if _viewer_is_admin:
         _marked_sheet_rows = st.session_state.get("_sol_delete_marked", [])
-        _all_marked        = bool(_all_sheet_rows) and sorted(_marked_sheet_rows) == sorted(_all_sheet_rows)
         _marked_set        = set(_marked_sheet_rows)
+        _all_sheet_rows_set = set(_all_sheet_rows)
+        _all_marked        = bool(_all_sheet_rows) and _marked_set == _all_sheet_rows_set
 
         # Reset selection whenever the filter pill changes (before any widget)
         if st.session_state.get("_sol_prev_filter") != active_filter:
             st.session_state["_sol_prev_filter"] = active_filter
             st.session_state.pop("_sol_delete_marked", None)
+            st.session_state.pop(_editor_key, None)   # clear stale checked rows from prior visit
             st.session_state["_sol_chk_next"] = False
             _marked_sheet_rows = []
             _marked_set        = set()
@@ -1163,7 +1165,7 @@ def _sol_filter_and_table(df):
         hide_index=True,
         use_container_width=True,
         num_rows="fixed",
-        key=f"sol_editor_{active_filter}",
+        key=_editor_key,
         height=560,
     )
 
@@ -1172,13 +1174,13 @@ def _sol_filter_and_table(df):
     # When it differs from what we stored last render, persist the new selection
     # and do ONE fragment rerun so the delete button count at the top updates.
     if _viewer_is_admin and "_delete" in edited_df.columns:
-        _newly_marked = [orig_index[i] + 2 for i, v in enumerate(edited_df["_delete"]) if v]
-        _prev_marked  = st.session_state.get("_sol_delete_marked", [])
-        if sorted(_newly_marked) != sorted(_prev_marked):
+        _newly_marked     = [orig_index[i] + 2 for i, v in enumerate(edited_df["_delete"]) if v]
+        _prev_marked      = st.session_state.get("_sol_delete_marked", [])
+        if set(_newly_marked) != set(_prev_marked):
             st.session_state["_sol_delete_marked"] = _newly_marked
-            _newly_all = bool(_all_sheet_rows) and sorted(_newly_marked) == sorted(_all_sheet_rows)
+            _newly_all = bool(_all_sheet_rows) and set(_newly_marked) == _all_sheet_rows_set
             st.session_state["_sol_chk_next"] = _newly_all
-            st.rerun()   # fast fragment rerun — brings top count in sync
+            st.rerun()   # fragment rerun — brings top count in sync
 
     # ── Auto-save on change ───────────────────
     original_prog = st.session_state.get("sol_original_progress")
