@@ -1048,55 +1048,65 @@ def _sol_filter_and_table(df):
         _all_marked        = bool(_all_sheet_rows) and sorted(_marked_sheet_rows) == sorted(_all_sheet_rows)
         _marked_set        = set(_marked_sheet_rows)
 
-        # Reset selection whenever the filter pill changes
+        # Reset selection whenever the filter pill changes (before any widget)
         if st.session_state.get("_sol_prev_filter") != active_filter:
             st.session_state["_sol_prev_filter"] = active_filter
             st.session_state.pop("_sol_delete_marked", None)
-            st.session_state["select_all_chk"] = False
+            st.session_state["_sol_chk_next"] = False
             _marked_sheet_rows = []
             _marked_set        = set()
             _all_marked        = False
 
-        _chk_col, _del_col, _spacer = st.columns([2, 2, 6])
-        with _chk_col:
+        # Apply staged checkbox state — MUST happen before st.checkbox() renders
+        if "_sol_chk_next" in st.session_state:
+            st.session_state["select_all_chk"] = st.session_state.pop("_sol_chk_next")
+
+        # Toolbar: [Select all] [Delete N] [Clear]
+        # Define columns first; render checkbox; run transitions; THEN render button.
+        # _n_sel must be computed AFTER transitions so the count is correct on the
+        # same run as the "Select All" click — not one rerun behind.
+        _t1, _t2, _t3, _spacer = st.columns([2, 2, 1.5, 4.5])
+
+        with _t1:
             _select_all = st.checkbox("Select all", key="select_all_chk")
 
+        # Select All / Deselect All transitions.
+        # st.rerun() after each so the data_editor re-renders on the NEXT pass
+        # with the correct pre-filled base — avoids stale visual state.
         if _select_all and not _all_marked:
-            # User just checked Select All — mark every visible row and reset editor edits
             st.session_state["_sol_delete_marked"] = _all_sheet_rows
             st.session_state.pop(_editor_key, None)
-            _marked_sheet_rows = _all_sheet_rows
-            _marked_set        = set(_all_sheet_rows)
+            st.rerun()
         elif not _select_all and _all_marked:
-            # User explicitly unchecked Select All — clear everything
             st.session_state.pop("_sol_delete_marked", None)
             st.session_state.pop(_editor_key, None)
-            _marked_sheet_rows = []
-            _marked_set        = set()
+            st.rerun()
 
-        # Delete button count comes from session_state (updated by bottom sync below).
-        # The bottom sync calls st.rerun() so the count here is always in-sync after
-        # at most one fast fragment rerun — no erratic jumps from stale edited_rows.
-        with _del_col:
-            if _marked_sheet_rows:
-                if st.button(
-                    f"🗑️ Delete {len(_marked_sheet_rows)}",
-                    type="primary",
-                    key="delete_top_btn",
-                ):
-                    try:
-                        with st.spinner("Deleting rows from sheet…"):
-                            from google_connector import delete_expired_rows as _del_rows
-                            _del_rows(_marked_sheet_rows)
-                        st.session_state.pop("_sol_delete_marked", None)
-                        st.session_state.pop(_editor_key, None)
-                        st.session_state["select_all_chk"] = False
-                        _fetch_solicitations.clear()
-                        st.session_state.pop("sol_data", None)
-                        st.session_state.pop("sol_original_progress", None)
-                        st.rerun(scope="app")
-                    except Exception as _de:
-                        st.error(f"Delete failed: {_de}")
+        _n_sel = len(_marked_sheet_rows)
+
+        with _t2:
+            if _n_sel and st.button(f"🗑️ Delete {_n_sel}", type="primary", key="delete_top_btn"):
+                try:
+                    with st.spinner(f"Deleting {_n_sel} rows…"):
+                        from google_connector import delete_expired_rows as _del_rows
+                        _del_rows(_marked_sheet_rows)
+                    st.toast(f"Deleted {_n_sel} rows.", icon="✅")
+                    st.session_state.pop("_sol_delete_marked", None)
+                    st.session_state.pop(_editor_key, None)
+                    st.session_state["_sol_chk_next"] = False
+                    _fetch_solicitations.clear()
+                    st.session_state.pop("sol_data", None)
+                    st.session_state.pop("sol_original_progress", None)
+                    st.rerun(scope="app")
+                except Exception as _de:
+                    st.error(f"Delete failed: {_de}")
+
+        with _t3:
+            if _n_sel and st.button("✕ Clear", key="clear_sel_btn"):
+                st.session_state.pop("_sol_delete_marked", None)
+                st.session_state.pop(_editor_key, None)
+                st.session_state["_sol_chk_next"] = False
+                st.rerun()
 
     # ── Column config ─────────────────────────
     _cols = display_df.columns.tolist()
@@ -1135,10 +1145,10 @@ def _sol_filter_and_table(df):
         col_cfg["Award Date"] = st.column_config.DateColumn("Award", width=90)
 
     _preferred_order = [
+        "_delete",   # leftmost — visually aligned under "Select all" toolbar
         "Solicitation Number", "Title", "Agency", "Solicitation Date",
         "Due Date", "Opportunity Type", "Normalized Set Aside",
         "Progress Report", "UiLink", "Award Date",
-        "_delete",   # rightmost column for admins
     ]
     all_cols     = display_df.columns.tolist()
     column_order = [c for c in _preferred_order if c in all_cols]
@@ -1167,7 +1177,7 @@ def _sol_filter_and_table(df):
         if sorted(_newly_marked) != sorted(_prev_marked):
             st.session_state["_sol_delete_marked"] = _newly_marked
             _newly_all = bool(_all_sheet_rows) and sorted(_newly_marked) == sorted(_all_sheet_rows)
-            st.session_state["select_all_chk"] = _newly_all
+            st.session_state["_sol_chk_next"] = _newly_all
             st.rerun()   # fast fragment rerun — brings top count in sync
 
     # ── Auto-save on change ───────────────────
