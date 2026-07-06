@@ -1040,24 +1040,22 @@ def _sol_filter_and_table(df):
     # ── Delete controls (admin only) ──────────
     _viewer_is_admin = st.session_state.get("role") == "admin"
     _marked_set      = set()   # used below to pre-fill _delete column
+    _all_sheet_rows  = [i + 2 for i in orig_index]   # always defined (used in bottom sync)
     if _viewer_is_admin:
-        _all_sheet_rows    = [i + 2 for i in orig_index]
         _marked_sheet_rows = st.session_state.get("_sol_delete_marked", [])
         _all_marked        = bool(_all_sheet_rows) and sorted(_marked_sheet_rows) == sorted(_all_sheet_rows)
 
-        # Select All checkbox: when checked it pre-fills every row's checkbox in the table
+        # Select All checkbox — pre-fills every row's checkbox in the table
         _chk_col, _del_col, _spacer = st.columns([2, 2, 6])
         with _chk_col:
-            _select_all = st.checkbox(
-                f"Select all ({len(_all_sheet_rows)})",
-                value=_all_marked,
-                key="select_all_chk",
-            )
+            _select_all = st.checkbox("Select all", key="select_all_chk")
 
         if _select_all and not _all_marked:
+            # User just checked Select All → mark every row
             st.session_state["_sol_delete_marked"] = _all_sheet_rows
             _marked_sheet_rows = _all_sheet_rows
         elif not _select_all and _all_marked:
+            # User explicitly unchecked Select All → clear everything
             st.session_state.pop("_sol_delete_marked", None)
             _marked_sheet_rows = []
 
@@ -1141,12 +1139,15 @@ def _sol_filter_and_table(df):
         height=560,
     )
 
-    # ── Sync row checkboxes → session_state → updates count at top on next pass ───
+    # ── Sync row checkboxes → session_state ──────────────────────────────────────
     if _viewer_is_admin and "_delete" in edited_df.columns:
         _newly_marked = [orig_index[i] + 2 for i, v in enumerate(edited_df["_delete"]) if v]
         _prev_marked  = st.session_state.get("_sol_delete_marked", [])
         if sorted(_newly_marked) != sorted(_prev_marked):
             st.session_state["_sol_delete_marked"] = _newly_marked
+            # Keep Select All checkbox in sync: uncheck it when not all rows are selected
+            _newly_all = bool(_all_sheet_rows) and sorted(_newly_marked) == sorted(_all_sheet_rows)
+            st.session_state["select_all_chk"] = _newly_all
             st.rerun()
 
     # ── Auto-save on change ───────────────────
