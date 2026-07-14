@@ -1011,29 +1011,56 @@ def _sol_filter_and_table(df):
         key="sol_filter",
     ) or "All"
 
-    # Determine what to filter
+    # Determine Progress Report / Urgent filter
     _is_urgent_pill = active_pill.startswith("🚨 Urgent")
-    active_filter = "All" if _is_urgent_pill else (active_pill.split("  (")[0] if active_pill != "All" else "All")
+    active_filter   = "All" if _is_urgent_pill else (active_pill.split("  (")[0] if active_pill != "All" else "All")
 
-    display_df = df.copy()
+    # Apply Progress Report / Urgent filter first (Set Aside pill counts are based on this subset)
     if _is_urgent_pill and _due is not None:
-        display_df = display_df[
-            _due.notna() & (_due >= _today) & (_due < _today + _dt_mod.timedelta(days=10))
-        ].reset_index(drop=False)
-    elif _is_urgent_pill:
-        display_df = display_df.reset_index(drop=False)
+        _pr_df = df[_due.notna() & (_due >= _today) & (_due < _today + _dt_mod.timedelta(days=10))]
     elif active_filter != "All" and has_prog:
-        display_df = display_df[df["Progress Report"] == active_filter].reset_index(drop=False)
+        _pr_df = df[df["Progress Report"] == active_filter]
     else:
-        display_df = display_df.reset_index(drop=False)
+        _pr_df = df
+
+    # ── Set Aside filter pills ──────────────────────────────────────────────
+    _has_sa   = "Normalized Set Aside" in df.columns
+    active_sa = "All"
+    if _has_sa:
+        _sa_series = _pr_df["Normalized Set Aside"].dropna().astype(str).str.strip()
+        _sa_counts = _sa_series[_sa_series.str.len() > 0].value_counts().to_dict()
+        _sa_opts   = ["All"] + [
+            f"{sa}  ({cnt})" for sa, cnt in sorted(_sa_counts.items(), key=lambda x: -x[1])
+        ]
+        _sa_pill  = st.pills(
+            "Set Aside",
+            options=_sa_opts,
+            selection_mode="single",
+            default="All",
+            key="sol_sa_filter",
+        ) or "All"
+        active_sa = "All" if _sa_pill == "All" else _sa_pill.split("  (")[0]
+
+    # Apply Set Aside filter on top of Progress Report filter
+    if active_sa != "All" and _has_sa:
+        _sa_mask   = _pr_df["Normalized Set Aside"].fillna("").astype(str).str.strip() == active_sa
+        display_df = _pr_df[_sa_mask].reset_index(drop=False)
+    else:
+        display_df = _pr_df.reset_index(drop=False)
+
+    # Combined key used for editor state and selection-reset detection.
+    # Any change to either filter pill triggers a selection reset.
+    _combined_filter = f"{active_filter}|{active_sa}"
 
     # Keep original df index so sheet row numbers stay correct
     orig_index = display_df["index"].tolist()
     display_df = display_df.drop(columns=["index"])
 
+    _filter_parts = ([active_filter] if active_filter != "All" else []) + \
+                    ([active_sa]     if active_sa     != "All" else [])
     st.caption(
         f"Showing {len(display_df)} of {total} solicitations"
-        + (f" — {active_filter}" if active_filter != "All" else "")
+        + (f" — {', '.join(_filter_parts)}" if _filter_parts else "")
     )
     st.caption("Change any Progress Report dropdown — it saves to the master sheet automatically.")
 
@@ -1041,7 +1068,7 @@ def _sol_filter_and_table(df):
     _viewer_is_admin = st.session_state.get("role") == "admin"
     _marked_set      = set()
     _all_sheet_rows  = [i + 2 for i in orig_index]
-    _editor_key      = f"sol_editor_{active_filter}"
+    _editor_key      = f"sol_editor_{_combined_filter}"
 
     if _viewer_is_admin:
         _marked_sheet_rows = st.session_state.get("_sol_delete_marked", [])
@@ -1050,8 +1077,8 @@ def _sol_filter_and_table(df):
         _all_marked        = bool(_all_sheet_rows) and _marked_set == _all_sheet_rows_set
 
         # Reset selection whenever the filter pill changes (before any widget)
-        if st.session_state.get("_sol_prev_filter") != active_filter:
-            st.session_state["_sol_prev_filter"] = active_filter
+        if st.session_state.get("_sol_prev_filter") != _combined_filter:
+            st.session_state["_sol_prev_filter"] = _combined_filter
             st.session_state.pop("_sol_delete_marked", None)
             st.session_state.pop(_editor_key, None)   # clear stale checked rows from prior visit
             st.session_state["_sol_chk_next"] = False
