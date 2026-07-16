@@ -932,6 +932,14 @@ _PROGRESS_OPTIONS = [
     "Bid Quote Requested",
 ]
 
+_AWARD_STATUS_OPTIONS = [
+    "",
+    "Submitted",
+    "Awarded",
+    "Rejected",
+    "Pending Decision",
+]
+
 
 def _purge_expired(df):
     """Identify rows where Due Date is 5+ days past and Progress Report is empty.
@@ -1140,6 +1148,7 @@ def _sol_filter_and_table(df):
                 st.session_state.pop("sol_data", None)
                 st.session_state.pop("sol_original_progress", None)
                 st.session_state.pop("sol_original_assigned_to", None)
+                st.session_state.pop("sol_original_award_status", None)
                 st.rerun(scope="app")
             except Exception as _de:
                 st.error(f"Delete failed: {_de}")
@@ -1238,20 +1247,27 @@ def _sol_filter_and_table(df):
             required=False,
             width=130,
         )
-    if "Award Date" in _cols:
-        col_cfg["Award Date"] = st.column_config.DateColumn("Award", width=90)
+    _has_award = "Award Status" in _cols
+    if _has_award:
+        col_cfg["Award Status"] = st.column_config.SelectboxColumn(
+            "Award Status",
+            options=_AWARD_STATUS_OPTIONS,
+            required=False,
+            width=140,
+        )
 
     _preferred_order = [
         "_delete",
         "Solicitation Number", "Title", "Agency", "Solicitation Date",
         "Due Date", "Opportunity Type", "Normalized Set Aside",
-        "Progress Report", "Assigned To", "UiLink", "Award Date",
+        "Progress Report", "Award Status", "Assigned To", "UiLink",
     ]
     all_cols     = display_df.columns.tolist()
     column_order = [c for c in _preferred_order if c in all_cols]
     editable     = (
         (["_delete"] if _viewer_is_admin else []) +
         (["Progress Report"] if "Progress Report" in _cols else []) +
+        (["Award Status"] if _has_award else []) +
         (["Assigned To"] if _has_assigned else [])
     )
     disabled     = [c for c in all_cols if c not in editable]
@@ -1382,13 +1398,54 @@ def _sol_filter_and_table(df):
             st.session_state["_sol_assigned_save"] = (_ta, _assigned_result)
             st.toast("💾 Saving assignment…")
 
+    # ── Auto-save Award Status on change ─────────────────────────────────────
+    original_award = st.session_state.get("sol_original_award_status")
+    if original_award is not None and _has_award and "Award Status" in edited_df.columns:
+        _edited_rows_map3 = st.session_state.get(_editor_key, {}).get("edited_rows", {})
+        if not any("Award Status" in v for v in _edited_rows_map3.values()):
+            original_award = None
+
+    if original_award is not None and _has_award and "Award Status" in edited_df.columns:
+        _award_updates = {}
+        for _df_idx, _new_val in zip(orig_index, edited_df["Award Status"]):
+            _old_val = original_award.iloc[_df_idx] if _df_idx < len(original_award) else ""
+            if str(_new_val or "") != str(_old_val or ""):
+                _award_updates[_df_idx + 2] = str(_new_val or "")
+
+        if _award_updates:
+            full_df = st.session_state["sol_data"].copy()
+            for _sheet_row, _new_val in _award_updates.items():
+                full_df.at[int(_sheet_row) - 2, "Award Status"] = _new_val
+            st.session_state["sol_data"] = full_df
+            st.session_state["sol_original_award_status"] = (
+                full_df["Award Status"].copy().reset_index(drop=True)
+            )
+
+            _award_result: dict = {}
+            _actor3 = st.session_state.get("username", "unknown")
+
+            def _bg_save_award(u=_award_updates, r=_award_result, actor=_actor3):
+                try:
+                    from google_connector import update_award_status
+                    r["count"] = update_award_status(u)
+                    r["ok"] = True
+                    from agent_state import log_user_activity
+                    log_user_activity(actor, "award_status_update", {"rows": list(u.keys())})
+                except Exception as exc:
+                    r["error"] = str(exc)
+
+            _tw = threading.Thread(target=_bg_save_award, daemon=True)
+            _tw.start()
+            st.session_state["_sol_award_save"] = (_tw, _award_result)
+            st.toast("💾 Saving award status…")
+
 
 def show_solicitations():
     st.title("📋 Solicitations")
     st.caption("Live view of tracked federal opportunities. Progress Report and Assigned To auto-save on change.")
 
     # Report any completed background saves from the previous interaction
-    for _save_key, _label in [("_sol_save", "status"), ("_sol_assigned_save", "assignment")]:
+    for _save_key, _label in [("_sol_save", "status"), ("_sol_assigned_save", "assignment"), ("_sol_award_save", "award status")]:
         _pending = st.session_state.get(_save_key)
         if _pending:
             _t, _r = _pending
@@ -1410,6 +1467,7 @@ def show_solicitations():
             st.session_state.pop("sol_data", None)
             st.session_state.pop("sol_original_progress", None)
             st.session_state.pop("sol_original_assigned_to", None)
+            st.session_state.pop("sol_original_award_status", None)
             st.session_state["sol_status"] = "loading"
             st.rerun()
 
@@ -1444,6 +1502,10 @@ def show_solicitations():
                 df["Assigned To"].copy().reset_index(drop=True)
                 if "Assigned To" in df.columns else None
             )
+            st.session_state["sol_original_award_status"] = (
+                df["Award Status"].copy().reset_index(drop=True)
+                if "Award Status" in df.columns else None
+            )
             st.session_state["sol_status"] = "updated"
             status_placeholder.success("✅ Up to date")
         except Exception as e:
@@ -1460,16 +1522,21 @@ def show_solicitations():
 
     df = st.session_state["sol_data"]
 
-    # Back-fill Assigned To for sessions where sol_data was cached before the
-    # column was added — avoids needing a manual Refresh to see the column.
+    # Back-fill columns for sessions where sol_data was cached before they existed.
+    _df_dirty = False
     if "Assigned To" not in df.columns:
-        df = df.copy()
+        df = df.copy(); _df_dirty = True
         df["Assigned To"] = ""
-        st.session_state["sol_data"] = df
         if st.session_state.get("sol_original_assigned_to") is None:
-            st.session_state["sol_original_assigned_to"] = (
-                df["Assigned To"].copy().reset_index(drop=True)
-            )
+            st.session_state["sol_original_assigned_to"] = df["Assigned To"].copy().reset_index(drop=True)
+    if "Award Status" not in df.columns:
+        if not _df_dirty:
+            df = df.copy(); _df_dirty = True
+        df["Award Status"] = ""
+        if st.session_state.get("sol_original_award_status") is None:
+            st.session_state["sol_original_award_status"] = df["Award Status"].copy().reset_index(drop=True)
+    if _df_dirty:
+        st.session_state["sol_data"] = df
 
     if df.empty:
         st.info("No solicitations found in the master sheet yet.")

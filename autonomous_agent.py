@@ -53,7 +53,8 @@ OUTPUT_COLUMNS = [
     "Normalized Set Aside",
     "UiLink",
     "Progress Report",
-    "Award Date",
+    "Award Status",
+    "Assigned To",
 ]
 
 QUALIFYING_SET_ASIDES = {
@@ -210,7 +211,8 @@ def process_file(file_id: str, file_name: str,
         return 0, "All rows already in sheet"
 
     filtered["Progress Report"] = ""
-    filtered["Award Date"]      = ""
+    filtered["Award Status"]    = ""
+    filtered["Assigned To"]     = ""
 
     rows = []
     for _, row in filtered.iterrows():

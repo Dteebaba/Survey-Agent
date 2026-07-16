@@ -49,7 +49,7 @@ OUTPUT_COLUMNS = [
     "Normalized Set Aside",
     "UiLink",
     "Progress Report",
-    "Award Date",
+    "Award Status",
     "Assigned To",
 ]
 
@@ -330,6 +330,11 @@ def read_master_sheet():
     df = pd.DataFrame(data, columns=headers)
     if "Progress Report" in df.columns:
         df["Progress Report"] = df["Progress Report"].fillna("").astype(str).replace("None", "")
+    # Rename legacy "Award Date" header → "Award Status" transparently
+    if "Award Date" in df.columns and "Award Status" not in df.columns:
+        df = df.rename(columns={"Award Date": "Award Status"})
+    if "Award Status" in df.columns:
+        df["Award Status"] = df["Award Status"].fillna("").astype(str).replace("None", "")
     # Inject Assigned To so the UI always renders the column even before
     # the first assignment is written back to the sheet.
     if "Assigned To" not in df.columns:
@@ -412,6 +417,43 @@ def update_assigned_to(row_updates: dict) -> int:
     if count:
         _save_and_upload(wb)
         log.info(f"Updated {count} Assigned To value(s) in master sheet")
+
+    return count
+
+
+def update_award_status(row_updates: dict) -> int:
+    """
+    Write Award Status values back to the master sheet.
+    Handles legacy sheets where the column may be called 'Award Date'.
+
+    row_updates: {sheet_row_number (int): status_string}
+    Returns count of rows updated.
+    """
+    if not row_updates:
+        return 0
+
+    wb, ws, _ = _open_master()
+    headers = {str(ws.cell(1, c).value or "").strip(): c for c in range(1, ws.max_column + 1)}
+
+    # Support legacy "Award Date" header alongside new "Award Status"
+    col = headers.get("Award Status") or headers.get("Award Date")
+    if not col:
+        col = ws.max_column + 1
+        cell = ws.cell(row=1, column=col, value="Award Status")
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="4472C4")
+        cell.alignment = Alignment(horizontal="center")
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 18
+
+    count = 0
+    for sheet_row, val in row_updates.items():
+        if 2 <= int(sheet_row) <= ws.max_row:
+            ws.cell(row=int(sheet_row), column=col, value=val or None)
+            count += 1
+
+    if count:
+        _save_and_upload(wb)
+        log.info(f"Updated {count} Award Status value(s) in master sheet")
 
     return count
 
