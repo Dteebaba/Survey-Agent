@@ -330,6 +330,10 @@ def read_master_sheet():
     df = pd.DataFrame(data, columns=headers)
     if "Progress Report" in df.columns:
         df["Progress Report"] = df["Progress Report"].fillna("").astype(str).replace("None", "")
+    # Inject Assigned To so the UI always renders the column even before
+    # the first assignment is written back to the sheet.
+    if "Assigned To" not in df.columns:
+        df["Assigned To"] = ""
     return df
 
 

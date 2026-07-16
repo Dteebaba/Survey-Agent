@@ -1067,10 +1067,13 @@ def _sol_filter_and_table(df):
     )
     st.caption("Change Progress Report or Assigned To — saves to the sheet automatically.")
 
-    # Load registered users for the "Assigned To" dropdown
-    from auth import load_users as _load_users_fn
-    _all_users    = _load_users_fn()
-    _user_names   = [u["username"] for u in _all_users]
+    # Load registered users for the "Assigned To" dropdown.
+    # Cached in session_state so the Gist network call only happens once per session,
+    # not on every fragment rerun (every checkbox tick, filter change, etc.).
+    if "_user_names_cache" not in st.session_state:
+        from auth import load_users as _load_users_fn
+        st.session_state["_user_names_cache"] = [u["username"] for u in _load_users_fn()]
+    _user_names   = st.session_state["_user_names_cache"]
     _current_user = st.session_state.get("username", "")
     _has_assigned = "Assigned To" in display_df.columns
 
@@ -2067,6 +2070,7 @@ def show_admin():
                 if new_username and new_password:
                     success, message = add_user(new_username, new_password, new_role)
                     if success:
+                        st.session_state.pop("_user_names_cache", None)  # refresh dropdown
                         st.success(message)
                     else:
                         st.error(message)
@@ -2126,6 +2130,7 @@ def show_admin():
                                         st.session_state.pop(_confirm_key, None)
                                         ok, msg = delete_user(uname)
                                         if ok:
+                                            st.session_state.pop("_user_names_cache", None)  # refresh dropdown
                                             st.success(msg)
                                             st.rerun()
                                         else:
