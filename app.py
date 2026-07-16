@@ -1458,6 +1458,17 @@ def show_solicitations():
 
     df = st.session_state["sol_data"]
 
+    # Back-fill Assigned To for sessions where sol_data was cached before the
+    # column was added — avoids needing a manual Refresh to see the column.
+    if "Assigned To" not in df.columns:
+        df = df.copy()
+        df["Assigned To"] = ""
+        st.session_state["sol_data"] = df
+        if st.session_state.get("sol_original_assigned_to") is None:
+            st.session_state["sol_original_assigned_to"] = (
+                df["Assigned To"].copy().reset_index(drop=True)
+            )
+
     if df.empty:
         st.info("No solicitations found in the master sheet yet.")
         return
