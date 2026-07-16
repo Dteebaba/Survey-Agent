@@ -1355,8 +1355,10 @@ def _sol_filter_and_table(df):
 
         if _assigned_updates:
             full_df = st.session_state["sol_data"].copy()
-            for _df_idx, _new_val in zip(orig_index, edited_df["Assigned To"]):
-                full_df.at[_df_idx, "Assigned To"] = str(_new_val or "")
+            # Only touch the rows that actually changed — writing all visible rows
+            # would overwrite legitimate assignments outside the current filter.
+            for _sheet_row, _new_val in _assigned_updates.items():
+                full_df.at[int(_sheet_row) - 2, "Assigned To"] = _new_val
             st.session_state["sol_data"] = full_df
             st.session_state["sol_original_assigned_to"] = (
                 full_df["Assigned To"].copy().reset_index(drop=True)
