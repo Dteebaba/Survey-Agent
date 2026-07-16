@@ -50,6 +50,7 @@ OUTPUT_COLUMNS = [
     "UiLink",
     "Progress Report",
     "Award Date",
+    "Assigned To",
 ]
 
 PROGRESS_OPTIONS = (
@@ -161,7 +162,7 @@ def _write_headers(ws):
         cell.alignment = Alignment(horizontal="center")
 
     # Set column widths
-    widths = [20, 40, 35, 18, 18, 20, 35, 40, 20, 18]
+    widths = [20, 40, 35, 18, 18, 20, 35, 40, 20, 18, 20]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
 
@@ -371,6 +372,42 @@ def update_progress_reports(row_updates: dict) -> int:
     if count:
         _save_and_upload(wb)
         log.info(f"Updated {count} Progress Report value(s) in master sheet")
+
+    return count
+
+
+def update_assigned_to(row_updates: dict) -> int:
+    """
+    Write 'Assigned To' values back to the master sheet.
+
+    row_updates: {sheet_row_number (int, 1-indexed, data starts at row 2): username (str)}
+    Creates the column if it doesn't exist yet.
+    Returns count of rows updated.
+    """
+    if not row_updates:
+        return 0
+
+    wb, ws, _ = _open_master()
+    headers = {str(ws.cell(1, c).value or "").strip(): c for c in range(1, ws.max_column + 1)}
+    col = headers.get("Assigned To")
+
+    if not col:
+        col = ws.max_column + 1
+        cell = ws.cell(row=1, column=col, value="Assigned To")
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="4472C4")
+        cell.alignment = Alignment(horizontal="center")
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 20
+
+    count = 0
+    for sheet_row, val in row_updates.items():
+        if 2 <= int(sheet_row) <= ws.max_row:
+            ws.cell(row=int(sheet_row), column=col, value=val or None)
+            count += 1
+
+    if count:
+        _save_and_upload(wb)
+        log.info(f"Updated {count} Assigned To value(s) in master sheet")
 
     return count
 

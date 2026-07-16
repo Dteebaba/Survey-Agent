@@ -210,6 +210,9 @@ def delete_user(username: str):
     users = load_users()
     if username == st.session_state.get("username"):
         return False, "You cannot delete your own account."
+    target = next((u for u in users if u['username'] == username), None)
+    if target and target.get('role') == 'admin':
+        return False, "Cannot remove an admin account. Downgrade their role to 'user' first, then remove."
     original_count = len(users)
     users = [user for user in users if user['username'] != username]
     if len(users) == original_count:
@@ -1062,7 +1065,14 @@ def _sol_filter_and_table(df):
         f"Showing {len(display_df)} of {total} solicitations"
         + (f" — {', '.join(_filter_parts)}" if _filter_parts else "")
     )
-    st.caption("Change any Progress Report dropdown — it saves to the master sheet automatically.")
+    st.caption("Change Progress Report or Assigned To — saves to the sheet automatically.")
+
+    # Load registered users for the "Assigned To" dropdown
+    from auth import load_users as _load_users_fn
+    _all_users    = _load_users_fn()
+    _user_names   = [u["username"] for u in _all_users]
+    _current_user = st.session_state.get("username", "")
+    _has_assigned = "Assigned To" in display_df.columns
 
     # ── Delete controls (admin only) ──────────
     _viewer_is_admin = st.session_state.get("role") == "admin"
@@ -1113,22 +1123,49 @@ def _sol_filter_and_table(df):
 
         _n_sel = len(_marked_sheet_rows)
 
+        def _execute_delete():
+            try:
+                with st.spinner(f"Deleting {_n_sel} rows…"):
+                    from google_connector import delete_expired_rows as _del_rows
+                    _del_rows(_marked_sheet_rows)
+                st.toast(f"Deleted {_n_sel} rows.", icon="✅")
+                st.session_state.pop("_sol_delete_marked", None)
+                st.session_state.pop(_editor_key, None)
+                st.session_state.pop("_sol_delete_confirm_conflicts", None)
+                st.session_state["_sol_chk_next"] = False
+                _fetch_solicitations.clear()
+                st.session_state.pop("sol_data", None)
+                st.session_state.pop("sol_original_progress", None)
+                st.session_state.pop("sol_original_assigned_to", None)
+                st.rerun(scope="app")
+            except Exception as _de:
+                st.error(f"Delete failed: {_de}")
+
         with _t2:
             if _n_sel and st.button(f"🗑️ Delete {_n_sel}", type="primary", key="delete_top_btn"):
-                try:
-                    with st.spinner(f"Deleting {_n_sel} rows…"):
-                        from google_connector import delete_expired_rows as _del_rows
-                        _del_rows(_marked_sheet_rows)
-                    st.toast(f"Deleted {_n_sel} rows.", icon="✅")
-                    st.session_state.pop("_sol_delete_marked", None)
-                    st.session_state.pop(_editor_key, None)
-                    st.session_state["_sol_chk_next"] = False
-                    _fetch_solicitations.clear()
-                    st.session_state.pop("sol_data", None)
-                    st.session_state.pop("sol_original_progress", None)
-                    st.rerun(scope="app")
-                except Exception as _de:
-                    st.error(f"Delete failed: {_de}")
+                # Check for rows claimed by other staff
+                _conflicts = []
+                if _has_assigned and "Assigned To" in display_df.columns:
+                    for _ii in range(len(display_df)):
+                        _srow = orig_index[_ii] + 2
+                        if _srow in _marked_set:
+                            _assignee = str(display_df.iloc[_ii].get("Assigned To", "") or "").strip()
+                            if _assignee and _assignee != _current_user:
+                                _sol = str(display_df.iloc[_ii].get("Solicitation Number", ""))
+                                _conflicts.append(f"{_sol} (claimed by {_assignee})")
+
+                if _conflicts and not _viewer_is_admin:
+                    st.session_state["_sol_delete_block_msg"] = (
+                        f"{len(_conflicts)} selected row(s) are claimed by other staff and cannot be deleted: "
+                        + ", ".join(_conflicts[:3])
+                        + ("…" if len(_conflicts) > 3 else "")
+                    )
+                    st.rerun()
+                elif _conflicts:
+                    st.session_state["_sol_delete_confirm_conflicts"] = _conflicts
+                    st.rerun()
+                else:
+                    _execute_delete()
 
         with _t3:
             if _n_sel and st.button("✕ Clear", key="clear_sel_btn"):
@@ -1136,6 +1173,27 @@ def _sol_filter_and_table(df):
                 st.session_state.pop(_editor_key, None)
                 st.session_state["_sol_chk_next"] = False
                 st.rerun()
+
+        # ── Conflict UI (shown below toolbar) ──────────────────────────────────
+        _del_block  = st.session_state.pop("_sol_delete_block_msg", None)
+        _del_conf   = st.session_state.get("_sol_delete_confirm_conflicts")
+
+        if _del_block:
+            st.error(f"🚫 {_del_block}")
+
+        elif _del_conf:
+            st.warning(
+                f"⚠️ {len(_del_conf)} row(s) are claimed by other staff members. "
+                "As admin you can override. Delete anyway?"
+            )
+            _oc1, _oc2, _ = st.columns([1.5, 1.5, 7])
+            with _oc1:
+                if st.button("Delete Anyway", type="primary", key="del_override_btn", use_container_width=True):
+                    _execute_delete()
+            with _oc2:
+                if st.button("Cancel", key="del_cancel_btn", use_container_width=True):
+                    st.session_state.pop("_sol_delete_confirm_conflicts", None)
+                    st.rerun()
 
     # ── Column config ─────────────────────────
     _cols = display_df.columns.tolist()
@@ -1170,18 +1228,29 @@ def _sol_filter_and_table(df):
             required=False,
             width=160,
         )
+    if _has_assigned:
+        col_cfg["Assigned To"] = st.column_config.SelectboxColumn(
+            "Assigned To",
+            options=[""] + _user_names,
+            required=False,
+            width=130,
+        )
     if "Award Date" in _cols:
         col_cfg["Award Date"] = st.column_config.DateColumn("Award", width=90)
 
     _preferred_order = [
-        "_delete",   # leftmost — visually aligned under "Select all" toolbar
+        "_delete",
         "Solicitation Number", "Title", "Agency", "Solicitation Date",
         "Due Date", "Opportunity Type", "Normalized Set Aside",
-        "Progress Report", "UiLink", "Award Date",
+        "Progress Report", "Assigned To", "UiLink", "Award Date",
     ]
     all_cols     = display_df.columns.tolist()
     column_order = [c for c in _preferred_order if c in all_cols]
-    editable     = (["_delete"] if _viewer_is_admin else []) + (["Progress Report"] if "Progress Report" in _cols else [])
+    editable     = (
+        (["_delete"] if _viewer_is_admin else []) +
+        (["Progress Report"] if "Progress Report" in _cols else []) +
+        (["Assigned To"] if _has_assigned else [])
+    )
     disabled     = [c for c in all_cols if c not in editable]
 
     edited_df = st.data_editor(
@@ -1267,21 +1336,63 @@ def _sol_filter_and_table(df):
             log_event("update_progress", "pending", f"{len(updates)} rows queued")
             st.toast("💾 Saving…")
 
+    # ── Auto-save Assigned To on change ──────────────────────────────────────
+    original_assigned = st.session_state.get("sol_original_assigned_to")
+    if original_assigned is not None and _has_assigned and "Assigned To" in edited_df.columns:
+        _edited_rows_map2 = st.session_state.get(_editor_key, {}).get("edited_rows", {})
+        if not any("Assigned To" in v for v in _edited_rows_map2.values()):
+            original_assigned = None
+
+    if original_assigned is not None and _has_assigned and "Assigned To" in edited_df.columns:
+        _assigned_updates = {}
+        for _df_idx, _new_val in zip(orig_index, edited_df["Assigned To"]):
+            _old_val = original_assigned.iloc[_df_idx] if _df_idx < len(original_assigned) else ""
+            if str(_new_val or "") != str(_old_val or ""):
+                _assigned_updates[_df_idx + 2] = str(_new_val or "")
+
+        if _assigned_updates:
+            full_df = st.session_state["sol_data"].copy()
+            for _df_idx, _new_val in zip(orig_index, edited_df["Assigned To"]):
+                full_df.at[_df_idx, "Assigned To"] = str(_new_val or "")
+            st.session_state["sol_data"] = full_df
+            st.session_state["sol_original_assigned_to"] = (
+                full_df["Assigned To"].copy().reset_index(drop=True)
+            )
+
+            _assigned_result: dict = {}
+            _actor2 = st.session_state.get("username", "unknown")
+
+            def _bg_save_assigned(u=_assigned_updates, r=_assigned_result, actor=_actor2):
+                try:
+                    from google_connector import update_assigned_to
+                    r["count"] = update_assigned_to(u)
+                    r["ok"] = True
+                    from agent_state import log_user_activity
+                    log_user_activity(actor, "assigned_to_update", {"rows": list(u.keys())})
+                except Exception as exc:
+                    r["error"] = str(exc)
+
+            _ta = threading.Thread(target=_bg_save_assigned, daemon=True)
+            _ta.start()
+            st.session_state["_sol_assigned_save"] = (_ta, _assigned_result)
+            st.toast("💾 Saving assignment…")
+
 
 def show_solicitations():
     st.title("📋 Solicitations")
-    st.caption("Live view of tracked federal opportunities. Progress Report status auto-saves on change.")
+    st.caption("Live view of tracked federal opportunities. Progress Report and Assigned To auto-save on change.")
 
-    # Report any completed background save from the previous interaction
-    _pending = st.session_state.get("_sol_save")
-    if _pending:
-        _t, _r = _pending
-        if not _t.is_alive():
-            st.session_state.pop("_sol_save", None)
-            if _r.get("ok"):
-                st.toast(f"✅ {_r['count']} status(es) saved to sheet", icon="✅")
-            elif _r.get("error"):
-                st.toast(f"❌ Save failed: {_r['error']}", icon="❌")
+    # Report any completed background saves from the previous interaction
+    for _save_key, _label in [("_sol_save", "status"), ("_sol_assigned_save", "assignment")]:
+        _pending = st.session_state.get(_save_key)
+        if _pending:
+            _t, _r = _pending
+            if not _t.is_alive():
+                st.session_state.pop(_save_key, None)
+                if _r.get("ok"):
+                    st.toast(f"✅ {_r['count']} {_label}(s) saved to sheet", icon="✅")
+                elif _r.get("error"):
+                    st.toast(f"❌ Save failed: {_r['error']}", icon="❌")
 
     col_back, col_refresh, col_status, col_spacer = st.columns([2, 2, 3, 3])
     with col_back:
@@ -1293,6 +1404,7 @@ def show_solicitations():
             _fetch_solicitations.clear()
             st.session_state.pop("sol_data", None)
             st.session_state.pop("sol_original_progress", None)
+            st.session_state.pop("sol_original_assigned_to", None)
             st.session_state["sol_status"] = "loading"
             st.rerun()
 
@@ -1322,6 +1434,10 @@ def show_solicitations():
             st.session_state["sol_original_progress"] = (
                 df["Progress Report"].copy().reset_index(drop=True)
                 if "Progress Report" in df.columns else None
+            )
+            st.session_state["sol_original_assigned_to"] = (
+                df["Assigned To"].copy().reset_index(drop=True)
+                if "Assigned To" in df.columns else None
             )
             st.session_state["sol_status"] = "updated"
             status_placeholder.success("✅ Up to date")
@@ -1963,7 +2079,7 @@ def show_admin():
         if not users:
             st.info("No users found. Add the first user above.")
         else:
-            st.caption(f"{len(users)} registered user(s) — accounts are permanent and never deleted")
+            st.caption(f"{len(users)} registered user(s)")
             st.write("")
             for i, user in enumerate(users):
                 uname = user['username']
@@ -1975,28 +2091,53 @@ def show_admin():
                     created = created[:10] if created else "—"
 
                 with st.expander(f"**{uname}** — {current_role.capitalize()}  ·  Added {created}", expanded=False):
-                    c1, c2 = st.columns([2, 3])
-                    with c1:
-                        new_role = st.selectbox(
-                            "Role",
-                            ["user", "admin"],
-                            index=0 if current_role == "user" else 1,
-                            key=f"role_{i}",
-                            help="User: Solicitations only  |  Admin: Full access",
-                        )
-                    with c2:
-                        st.write("")
-                        st.write("")
-                        if uname != st.session_state.get("username"):
-                            if st.button("Save Role Change", key=f"update_{i}", use_container_width=True):
+                    _is_self = uname == st.session_state.get("username")
+                    if _is_self:
+                        st.info("This is your own account. Role and delete actions are disabled for your own account.")
+                    else:
+                        c1, c2, c3 = st.columns([2, 2, 2])
+                        with c1:
+                            new_role = st.selectbox(
+                                "Role",
+                                ["user", "admin"],
+                                index=0 if current_role == "user" else 1,
+                                key=f"role_{i}",
+                                help="User: Solicitations only  |  Admin: Full access",
+                            )
+                        with c2:
+                            st.write("")
+                            st.write("")
+                            if st.button("Save Role", key=f"update_{i}", use_container_width=True):
                                 success, message = update_user_role(uname, new_role)
                                 if success:
                                     st.success(message)
                                     st.rerun()
                                 else:
                                     st.error(message)
-                        else:
-                            st.info("This is your own account.")
+                        with c3:
+                            st.write("")
+                            st.write("")
+                            _confirm_key = f"confirm_del_user_{i}"
+                            if st.session_state.get(_confirm_key):
+                                st.warning(f"Remove **{uname}**?")
+                                _dc1, _dc2 = st.columns(2)
+                                with _dc1:
+                                    if st.button("Yes, remove", key=f"del_yes_{i}", type="primary", use_container_width=True):
+                                        st.session_state.pop(_confirm_key, None)
+                                        ok, msg = delete_user(uname)
+                                        if ok:
+                                            st.success(msg)
+                                            st.rerun()
+                                        else:
+                                            st.error(msg)
+                                with _dc2:
+                                    if st.button("Cancel", key=f"del_no_{i}", use_container_width=True):
+                                        st.session_state.pop(_confirm_key, None)
+                                        st.rerun()
+                            else:
+                                if st.button("🗑 Remove Access", key=f"del_btn_{i}", use_container_width=True):
+                                    st.session_state[_confirm_key] = True
+                                    st.rerun()
 
     with tab2:
         logs = st.session_state.activity_log
