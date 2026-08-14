@@ -56,19 +56,112 @@ p, label, .stMarkdown, h1, h2, h3, h4 { color: #E6EDF3 !important; }
 .stExpander { background-color: #161B22 !important; border-color: #30363D !important; }
 """
 
+_WORKSPACE_CSS = """
+<style>
+.workspace-hero {
+    position: relative;
+    overflow: hidden;
+    padding: 1.35rem 1.55rem;
+    margin: .15rem 0 1rem;
+    border: 1px solid rgba(201,162,39,.30);
+    border-radius: 18px;
+    background: linear-gradient(130deg, #101a2b 0%, #17263c 58%, #1e293b 100%);
+    box-shadow: 0 12px 34px rgba(3,8,20,.30), 0 0 28px rgba(201,162,39,.08);
+}
+.workspace-hero::after {
+    content:""; position:absolute; width:190px; height:190px; right:-55px; top:-85px;
+    border-radius:50%; background:#d4af37; filter:blur(65px); opacity:.16;
+}
+.workspace-kicker { margin:0 0 .35rem; color:#e8c547; font-size:.72rem; font-weight:800; letter-spacing:.15em; text-transform:uppercase; }
+.workspace-title { margin:0; color:#fff; font-size:1.75rem; font-weight:900; letter-spacing:-.02em; }
+.workspace-sub { margin:.4rem 0 0; color:rgba(255,255,255,.62); font-size:.88rem; max-width:760px; line-height:1.55; }
+.workflow-strip { display:flex; flex-wrap:wrap; gap:.55rem; margin:.15rem 0 1rem; }
+.workflow-step { padding:.5rem .75rem; border-radius:999px; border:1px solid rgba(255,255,255,.10); background:rgba(17,24,39,.72); color:#d9e2ef; font-size:.78rem; }
+.workflow-step b { color:#e8c547; margin-right:.3rem; }
+div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
+    border:1px solid rgba(201,162,39,.20); border-radius:14px; overflow:hidden;
+    box-shadow:0 10px 28px rgba(0,0,0,.16), 0 0 20px rgba(201,162,39,.045);
+}
+div[data-testid="stMetric"] { border:1px solid rgba(201,162,39,.14); border-radius:13px; padding:.5rem; background:linear-gradient(145deg,rgba(23,38,60,.76),rgba(15,23,42,.76)); }
+div[data-testid="stButton"] button[kind="primary"] {
+    background:linear-gradient(135deg,#b88a12,#e8c547) !important; color:#111827 !important;
+    border:0 !important; box-shadow:0 6px 20px rgba(201,162,39,.28) !important; font-weight:800 !important;
+}
+div[data-testid="stButton"] button[kind="primary"]:hover { transform:translateY(-1px); box-shadow:0 9px 26px rgba(201,162,39,.40) !important; }
+</style>
+"""
+
+
+def _workspace_header(kicker: str, title: str, subtitle: str, steps: list[str]):
+    """Render the shared workspace hero and compact process guide."""
+    st.markdown(_WORKSPACE_CSS, unsafe_allow_html=True)
+    st.markdown(
+        f"""<div class="workspace-hero">
+        <p class="workspace-kicker">{kicker}</p>
+        <p class="workspace-title">{title}</p>
+        <p class="workspace-sub">{subtitle}</p>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+    chips = "".join(
+        f'<span class="workflow-step"><b>{index}</b>{label}</span>'
+        for index, label in enumerate(steps, 1)
+    )
+    st.markdown(f'<div class="workflow-strip">{chips}</div>', unsafe_allow_html=True)
+
+
+def _workspace_guide(kind: str):
+    """Optional, reopenable help; users may dismiss the automatic first-visit card."""
+    dismissed_key = f"guide_dismissed_{kind}"
+    labels = {
+        "opportunities": [
+            ("Search all columns", "Type any part of an ID, title, agency, date, set-aside, or link."),
+            ("Set Aside / Due toggle", "Narrow the pool without changing the underlying worksheet."),
+            ("Select", "Tick one or several qualified solicitation rows."),
+            ("Shortlist selected", "Moves selected rows safely into the shared active-work sheet."),
+            ("View Shortlisted", "Opens team assignments, progress, and award tracking."),
+        ],
+        "shortlisted": [
+            ("Search all columns", "Find work by ID, title, agency, assignee, progress, or award status."),
+            ("Status pills", "Focus the table on a processing stage or urgent deadline."),
+            ("Progress Report", "Update the current bid-processing stage; it saves automatically."),
+            ("Assigned To", "Choose the team member responsible for the solicitation."),
+            ("Award Status", "Record submitted, awarded, rejected, or pending outcomes."),
+        ],
+    }
+    with st.popover("❔ Quick guide", use_container_width=False):
+        st.markdown("#### What each control does")
+        for name, description in labels[kind]:
+            st.markdown(f"**{name}** — {description}")
+
+    if not st.session_state.get(dismissed_key, False):
+        with st.container(border=True):
+            st.markdown("#### 👋 Quick start")
+            st.caption("A short guide for this workspace. You can reopen it later with Quick guide.")
+            for name, description in labels[kind][:4]:
+                st.markdown(f"- **{name}:** {description}")
+            if st.button("Got it — hide this guide", key=f"dismiss_{kind}"):
+                st.session_state[dismissed_key] = True
+                st.rerun()
+
 # -------------------------------------------------
-# Cached sheet loaders — long TTL because data only changes every 4 h.
-# Manual "Refresh" and post-write code call .clear() for immediate invalidation.
+# Shared workspaces use a short TTL so team changes appear promptly. Manual
+# refresh and every successful write also clear the relevant cache immediately.
 # -------------------------------------------------
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def _fetch_solicitations():
     from google_connector import read_master_sheet
     return read_master_sheet()
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def _fetch_urgent():
     from google_connector import read_urgent_tab
     return read_urgent_tab()
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_shortlisted():
+    from google_connector import read_shortlisted_sheet
+    return read_shortlisted_sheet()
 
 
 # -------------------------------------------------
@@ -105,6 +198,14 @@ with st.sidebar:
     st.write(f"**{st.session_state.get('username', '')}**")
     role_display = "Admin" if st.session_state.get("role") == "admin" else "User"
     st.caption(f"Role: {role_display}")
+    st.divider()
+    st.caption("WORKSPACES")
+    if st.button("🔎 Find Opportunities", use_container_width=True, key="side_opportunities"):
+        st.session_state.page = "solicitations"; st.rerun()
+    if st.button("⭐ Shortlisted", use_container_width=True, key="side_shortlisted"):
+        st.session_state.page = "shortlisted"; st.rerun()
+    if st.button("⌂ Home", use_container_width=True, key="side_home"):
+        st.session_state.page = "landing"; st.rerun()
     st.divider()
     dark_on = st.toggle("🌙 Dark Mode", value=st.session_state.get("dark_mode", False))
     if dark_on != st.session_state.get("dark_mode", False):
@@ -630,7 +731,7 @@ def show_landing():
     st.write("")
 
     # ── Two hub cards ────────────────────────────
-    c1, c2 = st.columns(2, gap="large")
+    c1, c2, c3 = st.columns(3, gap="large")
 
     with c1:
         st.markdown("""
@@ -652,16 +753,32 @@ def show_landing():
         st.markdown("""
         <div class="hub-card sol">
             <span class="hub-icon">📋</span>
-            <p class="hub-card-title">Solicitations</p>
+            <p class="hub-card-title">Find Opportunities</p>
             <p class="hub-card-desc">
-                Live view of the master opportunity sheet. Browse all tracked federal
-                opportunities and update bid status in real time.
+                Search the incoming opportunity pool and select qualified solicitations
+                for team processing.
             </p>
         </div>
         """, unsafe_allow_html=True)
         st.markdown('<div class="hub-sol-btn">', unsafe_allow_html=True)
-        if st.button("View Solicitations →", use_container_width=True, key="btn_sol"):
+        if st.button("Find Opportunities →", use_container_width=True, key="btn_sol"):
             goto("solicitations")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with c3:
+        st.markdown("""
+        <div class="hub-card sol">
+            <span class="hub-icon">⭐</span>
+            <p class="hub-card-title">Shortlisted</p>
+            <p class="hub-card-desc">
+                Open the shared active-work queue to assign owners, track progress,
+                and record award outcomes.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown('<div class="hub-sol-btn">', unsafe_allow_html=True)
+        if st.button("View Shortlisted →", use_container_width=True, key="btn_shortlisted"):
+            goto("shortlisted")
         st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -997,6 +1114,26 @@ def _sol_filter_and_table(df):
     for col, label, val in zip(stat_cols, stat_labels, stat_values):
         col.metric(label, val)
 
+    # Global search is deliberately above the filters so users can find a record
+    # by any visible value (ID, title, agency, assignee, status, date, etc.).
+    search_term = st.text_input(
+        "Search all columns",
+        placeholder="Type a solicitation number, title, agency, assignee, status…",
+        key="shortlisted_global_search",
+    ).strip()
+    if search_term:
+        searchable = df.fillna("").astype(str)
+        matches = searchable.apply(
+            lambda col: col.str.contains(search_term, case=False, regex=False, na=False)
+        )
+        matched_columns = [column for column in df.columns if matches[column].any()]
+        df = df[matches.any(axis=1)].copy()
+        total = len(df)
+        st.caption(
+            f"{total} match(es) · Found in: "
+            + (", ".join(matched_columns) if matched_columns else "no columns")
+        )
+
     # ── Filter pills — label includes live count ──
     # Compute parsed due dates once; reused for both the pill count and urgent filter.
     import datetime as _dt_mod
@@ -1137,14 +1274,14 @@ def _sol_filter_and_table(df):
         def _execute_delete():
             try:
                 with st.spinner(f"Deleting {_n_sel} rows…"):
-                    from google_connector import delete_expired_rows as _del_rows
-                    _del_rows(_marked_sheet_rows)
+                    from google_connector import delete_expired_rows as _del_rows, SHORTLISTED_TAB_NAME
+                    _del_rows(_marked_sheet_rows, SHORTLISTED_TAB_NAME)
                 st.toast(f"Deleted {_n_sel} rows.", icon="✅")
                 st.session_state.pop("_sol_delete_marked", None)
                 st.session_state.pop(_editor_key, None)
                 st.session_state.pop("_sol_delete_confirm_conflicts", None)
                 st.session_state["_sol_chk_next"] = False
-                _fetch_solicitations.clear()
+                _fetch_shortlisted.clear()
                 st.session_state.pop("sol_data", None)
                 st.session_state.pop("sol_original_progress", None)
                 st.session_state.pop("sol_original_assigned_to", None)
@@ -1339,8 +1476,8 @@ def _sol_filter_and_table(df):
 
             def _bg_save(u=updates, r=_save_result, actor=_actor, changed=_changed):
                 try:
-                    from google_connector import update_progress_reports
-                    r["count"] = update_progress_reports(u)
+                    from google_connector import update_progress_reports, SHORTLISTED_TAB_NAME
+                    r["count"] = update_progress_reports(u, SHORTLISTED_TAB_NAME)
                     r["ok"] = True
                     # Log each status change
                     from agent_state import log_user_activity
@@ -1385,8 +1522,8 @@ def _sol_filter_and_table(df):
 
             def _bg_save_assigned(u=_assigned_updates, r=_assigned_result, actor=_actor2):
                 try:
-                    from google_connector import update_assigned_to
-                    r["count"] = update_assigned_to(u)
+                    from google_connector import update_assigned_to, SHORTLISTED_TAB_NAME
+                    r["count"] = update_assigned_to(u, SHORTLISTED_TAB_NAME)
                     r["ok"] = True
                     from agent_state import log_user_activity
                     log_user_activity(actor, "assigned_to_update", {"rows": list(u.keys())})
@@ -1426,8 +1563,8 @@ def _sol_filter_and_table(df):
 
             def _bg_save_award(u=_award_updates, r=_award_result, actor=_actor3):
                 try:
-                    from google_connector import update_award_status
-                    r["count"] = update_award_status(u)
+                    from google_connector import update_award_status, SHORTLISTED_TAB_NAME
+                    r["count"] = update_award_status(u, SHORTLISTED_TAB_NAME)
                     r["ok"] = True
                     from agent_state import log_user_activity
                     log_user_activity(actor, "award_status_update", {"rows": list(u.keys())})
@@ -1440,9 +1577,14 @@ def _sol_filter_and_table(df):
             st.toast("💾 Saving award status…")
 
 
-def show_solicitations():
-    st.title("📋 Solicitations")
-    st.caption("Live view of tracked federal opportunities. Progress Report and Assigned To auto-save on change.")
+def show_shortlisted():
+    _workspace_header(
+        "ACTIVE WORKSPACE",
+        "⭐ Shortlisted Solicitations",
+        "The shared processing workspace for ownership, progress, deadlines, and award outcomes.",
+        ["Find a record", "Assign an owner", "Update progress", "Track outcome"],
+    )
+    _workspace_guide("shortlisted")
 
     # Report any completed background saves from the previous interaction
     for _save_key, _label in [("_sol_save", "status"), ("_sol_assigned_save", "assignment"), ("_sol_award_save", "award status")]:
@@ -1456,20 +1598,31 @@ def show_solicitations():
                 elif _r.get("error"):
                     st.toast(f"❌ Save failed: {_r['error']}", icon="❌")
 
-    col_back, col_refresh, col_status, col_spacer = st.columns([2, 2, 3, 3])
+    col_back, col_find, col_refresh, col_status = st.columns([1.5, 2.5, 2, 4])
     with col_back:
-        if st.session_state.get("role") == "admin":
-            if st.button("← Back to Home"):
-                goto("landing")
+        if st.button("← Home"):
+            goto("landing")
+    with col_find:
+        if st.button("🔎 Find Opportunities", use_container_width=True):
+            goto("solicitations")
     with col_refresh:
         if st.button("🔄 Refresh from Sheet"):
-            _fetch_solicitations.clear()
+            _fetch_shortlisted.clear()
             st.session_state.pop("sol_data", None)
             st.session_state.pop("sol_original_progress", None)
             st.session_state.pop("sol_original_assigned_to", None)
             st.session_state.pop("sol_original_award_status", None)
             st.session_state["sol_status"] = "loading"
             st.rerun()
+
+    # Refresh session data after one minute on the next interaction so another
+    # teammate's changes do not remain hidden for the whole login session.
+    if (
+        "sol_data" in st.session_state
+        and datetime.datetime.now().timestamp() - st.session_state.get("sol_loaded_at", 0) > 60
+    ):
+        st.session_state.pop("sol_data", None)
+        _fetch_shortlisted.clear()
 
     # ── Load data (serve from memory cache, fetch from Drive only on cold start) ──
     sheet_status = st.session_state.get("sol_status", "idle")
@@ -1478,22 +1631,10 @@ def show_solicitations():
     if "sol_data" not in st.session_state:
         status_placeholder.info("⏳ Loading sheet…")
         try:
-            df = _fetch_solicitations()
-
-            # Auto-purge rows that are 5+ days past due with no status
-            df, expired_rows = _purge_expired(df)
-            if expired_rows:
-                def _bg_delete(rows=expired_rows):
-                    try:
-                        from google_connector import delete_expired_rows
-                        delete_expired_rows(rows)
-                        _fetch_solicitations.clear()
-                    except Exception:
-                        pass
-                threading.Thread(target=_bg_delete, daemon=True).start()
-                st.toast(f"🗑️ Auto-removed {len(expired_rows)} expired row(s) with no status")
+            df = _fetch_shortlisted()
 
             st.session_state["sol_data"] = df
+            st.session_state["sol_loaded_at"] = datetime.datetime.now().timestamp()
             st.session_state["sol_original_progress"] = (
                 df["Progress Report"].copy().reset_index(drop=True)
                 if "Progress Report" in df.columns else None
@@ -1539,21 +1680,17 @@ def show_solicitations():
         st.session_state["sol_data"] = df
 
     if df.empty:
-        st.info("No solicitations found in the master sheet yet.")
+        st.info("No shortlisted solicitations yet. Select qualified opportunities from Find Opportunities.")
         return
 
-    tab_all, tab_urgent = st.tabs(["📋 All Solicitations", "🚨 Urgent (< 10 days)"])
+    _sol_filter_and_table(df)
 
-    with tab_all:
-        _sol_filter_and_table(df)
-
-    with tab_urgent:
+    with st.expander("🚨 Urgent shortlisted solicitations", expanded=False):
         # Refresh Urgent sheet tab + clear expired in background when user opens it
         if st.button("🔄 Refresh Urgent", key="refresh_urgent"):
             def _bg_urgent():
                 try:
-                    from google_connector import refresh_urgent_tab, cleanup_overdue_rows
-                    cleanup_overdue_rows()
+                    from google_connector import refresh_urgent_tab
                     refresh_urgent_tab()
                     _fetch_urgent.clear()
                 except Exception:
@@ -1573,6 +1710,175 @@ def show_solicitations():
         else:
             st.caption(f"**{len(df_urgent)}** solicitation(s) due within the next 10 days.")
             st.dataframe(df_urgent, use_container_width=True, hide_index=True)
+
+
+def show_solicitations():
+    """Intake workspace: find and move qualified opportunities into active work."""
+    _workspace_header(
+        "OPPORTUNITY INTAKE",
+        "🔎 Find Opportunities",
+        "Search the incoming pool, review qualified opportunities, and move the right solicitations into team processing.",
+        ["Search or filter", "Review details", "Select qualified rows", "Shortlist"],
+    )
+    _workspace_guide("opportunities")
+
+    try:
+        shortlisted_count = len(_fetch_shortlisted())
+    except Exception:
+        shortlisted_count = 0
+
+    c_home, c_short, c_refresh, c_status = st.columns([1.3, 2.8, 2, 3.9])
+    with c_home:
+        if st.button("← Home", key="opp_home"):
+            goto("landing")
+    with c_short:
+        if st.button(
+            f"⭐ View Shortlisted ({shortlisted_count}) →",
+            key="opp_view_shortlisted",
+            use_container_width=True,
+            type="primary",
+        ):
+            goto("shortlisted")
+    with c_refresh:
+        if st.button("🔄 Refresh", key="opp_refresh", use_container_width=True):
+            _fetch_solicitations.clear()
+            st.session_state.pop("opportunities_data", None)
+            st.rerun()
+
+    if (
+        "opportunities_data" in st.session_state
+        and datetime.datetime.now().timestamp() - st.session_state.get("opportunities_loaded_at", 0) > 60
+    ):
+        st.session_state.pop("opportunities_data", None)
+        _fetch_solicitations.clear()
+
+    if "opportunities_data" not in st.session_state:
+        try:
+            with c_status:
+                st.caption("Loading the latest intake sheet…")
+            df = _fetch_solicitations()
+            # Intake cleanup remains limited to unselected, expired candidates.
+            df, expired_rows = _purge_expired(df)
+            if expired_rows:
+                from google_connector import delete_expired_rows
+                delete_expired_rows(expired_rows)
+                _fetch_solicitations.clear()
+            st.session_state["opportunities_data"] = df
+            st.session_state["opportunities_loaded_at"] = datetime.datetime.now().timestamp()
+        except Exception as exc:
+            st.error(f"Could not load Opportunities: {exc}")
+            return
+    df = st.session_state["opportunities_data"].copy()
+
+    search = st.text_input(
+        "Search all columns",
+        placeholder="Type an ID, title, agency, set-aside, date, or any other value…",
+        key="opportunities_global_search",
+    ).strip()
+    matched_columns = []
+    if search:
+        searchable = df.fillna("").astype(str)
+        match_cells = searchable.apply(
+            lambda col: col.str.contains(search, case=False, regex=False, na=False)
+        )
+        matched_columns = [column for column in df.columns if match_cells[column].any()]
+        df = df[match_cells.any(axis=1)].copy()
+
+    filter_col, urgent_col, result_col = st.columns([3, 2, 5])
+    with filter_col:
+        set_asides = ["All"]
+        if "Normalized Set Aside" in df.columns:
+            set_asides += sorted(
+                value for value in df["Normalized Set Aside"].fillna("").astype(str).unique()
+                if value.strip()
+            )
+        selected_set_aside = st.selectbox("Set Aside", set_asides, key="opp_set_aside")
+    with urgent_col:
+        urgent_only = st.toggle("Due within 10 days", key="opp_urgent_only")
+
+    if selected_set_aside != "All" and "Normalized Set Aside" in df.columns:
+        df = df[df["Normalized Set Aside"].fillna("").astype(str) == selected_set_aside]
+    if urgent_only and "Due Date" in df.columns:
+        today = datetime.date.today()
+        due = __import__("pandas").to_datetime(df["Due Date"], errors="coerce").dt.date
+        df = df[due.notna() & (due >= today) & (due < today + datetime.timedelta(days=10))]
+
+    with result_col:
+        st.write("")
+        detail = f"Showing {len(df)} of {len(st.session_state['opportunities_data'])} opportunities"
+        if search:
+            detail += " · matched: " + (", ".join(matched_columns) if matched_columns else "none")
+        st.caption(detail)
+
+    if df.empty:
+        st.info("No opportunities match the current search and filters.")
+        return
+
+    table = df.copy()
+    table.insert(0, "_shortlist", False)
+    preferred = [
+        "_shortlist", "Solicitation Number", "Title", "Agency", "Solicitation Date",
+        "Due Date", "Opportunity Type", "Normalized Set Aside", "UiLink",
+    ]
+    column_order = [column for column in preferred if column in table.columns]
+    config = {
+        "_shortlist": st.column_config.CheckboxColumn("Select", width="small"),
+        "UiLink": st.column_config.LinkColumn("SAM.gov", display_text="Open", width="small"),
+    }
+    edited = st.data_editor(
+        table,
+        column_config=config,
+        column_order=column_order,
+        disabled=[column for column in table.columns if column != "_shortlist"],
+        hide_index=True,
+        use_container_width=True,
+        num_rows="fixed",
+        height=600,
+        key="opportunities_selector",
+    )
+    chosen = edited[edited["_shortlist"]]
+    chosen_count = len(chosen)
+    action, hint = st.columns([3, 7])
+    with action:
+        if st.button(
+            f"⭐ Shortlist selected ({chosen_count})",
+            type="primary",
+            disabled=chosen_count == 0,
+            use_container_width=True,
+            key="move_to_shortlisted",
+        ):
+            keys = []
+            for _, row in chosen.iterrows():
+                key = str(row.get("Solicitation Number", "") or "").strip()
+                if not key:
+                    key = str(row.get("UiLink", "") or "").strip()
+                if key:
+                    keys.append(key)
+            try:
+                with st.spinner("Moving selected solicitations safely…"):
+                    from google_connector import shortlist_solicitations
+                    result = shortlist_solicitations(keys, st.session_state.get("username", "unknown"))
+                try:
+                    from agent_state import log_user_activity
+                    log_user_activity(
+                        st.session_state.get("username", "unknown"),
+                        "shortlist",
+                        {"count": result["moved"], "solicitations": keys},
+                    )
+                except Exception:
+                    pass
+                _fetch_solicitations.clear()
+                _fetch_shortlisted.clear()
+                _fetch_urgent.clear()
+                st.session_state.pop("opportunities_data", None)
+                st.session_state.pop("sol_data", None)
+                st.success(f"Moved {result['moved']} solicitation(s) to Shortlisted.")
+                st.session_state.page = "shortlisted"
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Shortlisting failed; no partial move was saved. {exc}")
+    with hint:
+        st.caption("Selection moves the records out of Opportunities and into the shared Shortlisted worksheet in one save.")
 
 
 @st.fragment(run_every=1)
@@ -2414,6 +2720,8 @@ elif page == "operations":
     show_operations()
 elif page == "solicitations":
     show_solicitations()
+elif page == "shortlisted":
+    show_shortlisted()
 elif page == "survey":
     show_survey()
 elif page == "training":

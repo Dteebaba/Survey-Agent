@@ -7,6 +7,7 @@ Uses GOOGLE_ACCESS_TOKEN from Replit Secrets.
 import io
 import logging
 import os
+import threading
 import time
 import requests
 import openpyxl
@@ -23,6 +24,18 @@ SPREADSHEET_FILE_ID = os.getenv("GOOGLE_SHEETS_ID", "151jig9_3v-__dHfk7TksitJYON
 # after each upload so reads right after a write still see fresh data.
 _RAW_CACHE: dict = {"data": None, "ts": 0.0}
 _RAW_CACHE_TTL = 30  # seconds
+_WORKBOOK_LOCK = threading.RLock()
+
+
+def _serialized_workbook_write(func):
+    """Serialize writes in this app process and always start from fresh bytes."""
+    def wrapped(*args, **kwargs):
+        with _WORKBOOK_LOCK:
+            _invalidate_raw_cache()
+            return func(*args, **kwargs)
+    wrapped.__name__ = func.__name__
+    wrapped.__doc__ = func.__doc__
+    return wrapped
 
 
 def _get_master_bytes() -> bytes:
@@ -37,6 +50,7 @@ def _invalidate_raw_cache() -> None:
     _RAW_CACHE["data"] = None
     _RAW_CACHE["ts"]   = 0.0
 SHEET_TAB_NAME      = "Opportunities"
+SHORTLISTED_TAB_NAME = "Shortlisted"
 URGENT_TAB_NAME     = "Urgent"
 
 OUTPUT_COLUMNS = [
@@ -51,6 +65,14 @@ OUTPUT_COLUMNS = [
     "Progress Report",
     "Award Status",
     "Assigned To",
+]
+
+SHORTLISTED_COLUMNS = OUTPUT_COLUMNS + [
+    "Shortlisted By",
+    "Shortlisted At",
+    "Last Updated By",
+    "Last Updated At",
+    "Team Notes",
 ]
 
 PROGRESS_OPTIONS = (
@@ -169,6 +191,26 @@ def _write_headers(ws):
     log.info(f"Headers written to sheet '{ws.title}'")
 
 
+def _ensure_tab(wb, tab_name: str, columns: list):
+    """Return a worksheet, creating and formatting it when necessary."""
+    if tab_name in wb.sheetnames:
+        ws = wb[tab_name]
+    else:
+        ws = wb.create_sheet(tab_name)
+
+    if ws.max_row == 0 or ws.cell(1, 1).value is None:
+        header_fill = PatternFill("solid", fgColor="4472C4")
+        header_font = Font(bold=True, color="FFFFFF")
+        for col_idx, col_name in enumerate(columns, start=1):
+            cell = ws.cell(row=1, column=col_idx, value=col_name)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center")
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = f"A1:{openpyxl.utils.get_column_letter(len(columns))}1"
+    return ws
+
+
 def _save_and_upload(wb) -> None:
     buf = io.BytesIO()
     wb.save(buf)
@@ -189,30 +231,25 @@ def _save_and_upload(wb) -> None:
 # ─────────────────────────────────────────────
 
 def get_existing_dedup_keys() -> tuple:
-    """Return (solicitation_numbers, uilinks) already in the sheet."""
+    """Return keys from both intake and shortlisted tabs to prevent re-imports."""
     try:
-        _, ws = _open_master_readonly()
-        headers  = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
-
-        def _find(name):
-            for i, h in enumerate(headers):
-                if h and str(h).strip().lower() == name.lower():
-                    return i + 1
-            return None
-
-        sol_col  = _find("Solicitation Number")
-        link_col = _find("UiLink")
+        raw = _get_master_bytes()
+        wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
         sol_nums, uilinks = set(), set()
 
-        for row in range(2, ws.max_row + 1):
-            if sol_col:
-                v = ws.cell(row, sol_col).value
-                if v:
-                    sol_nums.add(str(v).strip())
-            if link_col:
-                v = ws.cell(row, link_col).value
-                if v:
-                    uilinks.add(str(v).strip())
+        for tab_name in (SHEET_TAB_NAME, SHORTLISTED_TAB_NAME):
+            if tab_name not in wb.sheetnames:
+                continue
+            ws = wb[tab_name]
+            headers = [str(v or "").strip() for v in next(ws.iter_rows(values_only=True), [])]
+            sol_col = headers.index("Solicitation Number") if "Solicitation Number" in headers else None
+            link_col = headers.index("UiLink") if "UiLink" in headers else None
+            for values in ws.iter_rows(min_row=2, values_only=True):
+                if sol_col is not None and sol_col < len(values) and values[sol_col]:
+                    sol_nums.add(str(values[sol_col]).strip())
+                if link_col is not None and link_col < len(values) and values[link_col]:
+                    uilinks.add(str(values[link_col]).strip())
+        wb.close()
 
         log.info(f"Existing dedup keys: {len(sol_nums)} sol#, {len(uilinks)} links")
         return sol_nums, uilinks
@@ -231,6 +268,7 @@ def get_existing_solicitation_numbers() -> set:
 # Append rows
 # ─────────────────────────────────────────────
 
+@_serialized_workbook_write
 def append_rows_to_xlsx(rows: list, output_columns: list) -> int:
     """Append rows to master sheet. Returns count appended."""
     if not rows:
@@ -270,6 +308,7 @@ def append_rows_to_xlsx(rows: list, output_columns: list) -> int:
     return len(rows)
 
 
+@_serialized_workbook_write
 def apply_progress_dropdown() -> None:
     """Re-apply Progress Report dropdown. Safe to call anytime."""
     wb, ws, _ = _open_master()
@@ -342,19 +381,130 @@ def read_master_sheet():
     return df
 
 
-def delete_expired_rows(sheet_row_numbers: list) -> int:
-    """Delete the given 1-indexed sheet row numbers from the master sheet and re-upload."""
+def read_shortlisted_sheet():
+    """Read the active-work queue from the Shortlisted worksheet."""
+    import pandas as pd
+
+    raw = _get_master_bytes()
+    wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    try:
+        if SHORTLISTED_TAB_NAME not in wb.sheetnames:
+            return pd.DataFrame(columns=SHORTLISTED_COLUMNS)
+        ws = wb[SHORTLISTED_TAB_NAME]
+        rows = list(ws.iter_rows(values_only=True))
+    finally:
+        wb.close()
+    if not rows:
+        return pd.DataFrame(columns=SHORTLISTED_COLUMNS)
+    headers = [str(v) if v is not None else f"Col{i+1}" for i, v in enumerate(rows[0])]
+    data = [list(row) for row in rows[1:] if any(v is not None for v in row)]
+    df = pd.DataFrame(data, columns=headers)
+    for col in ("Progress Report", "Award Status", "Assigned To", "Team Notes"):
+        if col not in df.columns:
+            df[col] = ""
+        df[col] = df[col].fillna("").astype(str).replace("None", "")
+    return df
+
+
+def shortlist_solicitations(record_keys: list, actor: str) -> dict:
+    """Atomically move records from Opportunities to Shortlisted in one upload.
+
+    Keys are solicitation numbers, falling back to UiLink. Existing shortlisted
+    records are skipped, and source rows are deleted only after their copy has
+    been prepared in the same in-memory workbook.
+    """
+    from datetime import datetime, timezone
+
+    wanted = {str(k).strip() for k in record_keys if str(k).strip()}
+    if not wanted:
+        return {"moved": 0, "skipped": 0, "missing": 0}
+
+    with _WORKBOOK_LOCK:
+        _invalidate_raw_cache()  # writes must start from the freshest Drive version
+        wb, source, _ = _open_master()
+        target = _ensure_tab(wb, SHORTLISTED_TAB_NAME, SHORTLISTED_COLUMNS)
+
+        source_headers = {
+            str(source.cell(1, c).value or "").strip(): c
+            for c in range(1, source.max_column + 1)
+        }
+        target_headers = {
+            str(target.cell(1, c).value or "").strip(): c
+            for c in range(1, target.max_column + 1)
+        }
+        for column in SHORTLISTED_COLUMNS:
+            if column not in target_headers:
+                idx = target.max_column + 1
+                target.cell(1, idx, column)
+                target_headers[column] = idx
+
+        def row_key(ws, row, headers):
+            sol_col = headers.get("Solicitation Number")
+            link_col = headers.get("UiLink")
+            sol = str(ws.cell(row, sol_col).value or "").strip() if sol_col else ""
+            link = str(ws.cell(row, link_col).value or "").strip() if link_col else ""
+            return sol or link
+
+        existing = {
+            row_key(target, r, target_headers)
+            for r in range(2, target.max_row + 1)
+        }
+        existing.discard("")
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        rows_to_delete = []
+        moved = skipped = 0
+
+        for row in range(2, source.max_row + 1):
+            key = row_key(source, row, source_headers)
+            if key not in wanted:
+                continue
+            if key in existing:
+                skipped += 1
+                rows_to_delete.append(row)
+                continue
+
+            new_row = target.max_row + 1
+            for column in OUTPUT_COLUMNS:
+                src_col = source_headers.get(column)
+                if src_col:
+                    target.cell(new_row, target_headers[column], source.cell(row, src_col).value)
+            target.cell(new_row, target_headers["Shortlisted By"], actor)
+            target.cell(new_row, target_headers["Shortlisted At"], now)
+            target.cell(new_row, target_headers["Last Updated By"], actor)
+            target.cell(new_row, target_headers["Last Updated At"], now)
+            rows_to_delete.append(row)
+            existing.add(key)
+            moved += 1
+
+        for row in sorted(rows_to_delete, reverse=True):
+            source.delete_rows(row)
+
+        if rows_to_delete:
+            _apply_dropdown(target, target_headers)
+            _save_and_upload(wb)
+        else:
+            wb.close()
+        return {"moved": moved, "skipped": skipped, "missing": len(wanted) - moved - skipped}
+
+
+@_serialized_workbook_write
+def delete_expired_rows(sheet_row_numbers: list, tab_name: str = SHEET_TAB_NAME) -> int:
+    """Delete worksheet rows and upload the workbook once."""
     if not sheet_row_numbers:
         return 0
-    wb, ws, _ = _open_master()
-    for row_num in sorted(sheet_row_numbers, reverse=True):
-        ws.delete_rows(row_num)
-    _save_and_upload(wb)
-    log.info(f"Deleted {len(sheet_row_numbers)} expired row(s) from master sheet")
+    with _WORKBOOK_LOCK:
+        _invalidate_raw_cache()
+        wb, main_ws, _ = _open_master()
+        ws = main_ws if tab_name == SHEET_TAB_NAME else _ensure_tab(wb, tab_name, SHORTLISTED_COLUMNS)
+        for row_num in sorted(sheet_row_numbers, reverse=True):
+            ws.delete_rows(row_num)
+        _save_and_upload(wb)
+    log.info(f"Deleted {len(sheet_row_numbers)} row(s) from {tab_name}")
     return len(sheet_row_numbers)
 
 
-def update_progress_reports(row_updates: dict) -> int:
+@_serialized_workbook_write
+def update_progress_reports(row_updates: dict, tab_name: str = SHEET_TAB_NAME) -> int:
     """
     Write Progress Report values back to the master sheet.
 
@@ -364,7 +514,13 @@ def update_progress_reports(row_updates: dict) -> int:
     if not row_updates:
         return 0
 
-    wb, ws, _ = _open_master()
+    with _WORKBOOK_LOCK:
+        _invalidate_raw_cache()
+        wb, _, _ = _open_master()
+        ws = _ensure_tab(
+            wb, tab_name,
+            SHORTLISTED_COLUMNS if tab_name == SHORTLISTED_TAB_NAME else OUTPUT_COLUMNS,
+        )
 
     # Locate Progress Report column
     headers = {str(ws.cell(1, c).value).strip(): c for c in range(1, ws.max_column + 1)}
@@ -385,7 +541,8 @@ def update_progress_reports(row_updates: dict) -> int:
     return count
 
 
-def update_assigned_to(row_updates: dict) -> int:
+@_serialized_workbook_write
+def update_assigned_to(row_updates: dict, tab_name: str = SHEET_TAB_NAME) -> int:
     """
     Write 'Assigned To' values back to the master sheet.
 
@@ -396,7 +553,13 @@ def update_assigned_to(row_updates: dict) -> int:
     if not row_updates:
         return 0
 
-    wb, ws, _ = _open_master()
+    with _WORKBOOK_LOCK:
+        _invalidate_raw_cache()
+        wb, _, _ = _open_master()
+        ws = _ensure_tab(
+            wb, tab_name,
+            SHORTLISTED_COLUMNS if tab_name == SHORTLISTED_TAB_NAME else OUTPUT_COLUMNS,
+        )
     headers = {str(ws.cell(1, c).value or "").strip(): c for c in range(1, ws.max_column + 1)}
     col = headers.get("Assigned To")
 
@@ -421,7 +584,8 @@ def update_assigned_to(row_updates: dict) -> int:
     return count
 
 
-def update_award_status(row_updates: dict) -> int:
+@_serialized_workbook_write
+def update_award_status(row_updates: dict, tab_name: str = SHEET_TAB_NAME) -> int:
     """
     Write Award Status values back to the master sheet.
     Handles legacy sheets where the column may be called 'Award Date'.
@@ -432,7 +596,13 @@ def update_award_status(row_updates: dict) -> int:
     if not row_updates:
         return 0
 
-    wb, ws, _ = _open_master()
+    with _WORKBOOK_LOCK:
+        _invalidate_raw_cache()
+        wb, _, _ = _open_master()
+        ws = _ensure_tab(
+            wb, tab_name,
+            SHORTLISTED_COLUMNS if tab_name == SHORTLISTED_TAB_NAME else OUTPUT_COLUMNS,
+        )
     headers = {str(ws.cell(1, c).value or "").strip(): c for c in range(1, ws.max_column + 1)}
 
     # Support legacy "Award Date" header alongside new "Award Status"
@@ -502,97 +672,39 @@ def _ensure_urgent_tab(wb):
     return wb[URGENT_TAB_NAME]
 
 
+@_serialized_workbook_write
 def refresh_urgent_tab() -> tuple:
-    """
-    Sync the Urgent sheet tab from the main Opportunities sheet:
-      - Remove rows where due_date < today (expired)
-      - Add rows where today <= due_date < today+10 not already present
-    Returns (removed, added).
-    """
+    """Rebuild Urgent as a read-only projection of the Shortlisted queue."""
     from datetime import date, timedelta
     today        = date.today()
     urgent_limit = today + timedelta(days=10)
 
-    wb, ws_main, _ = _open_master()
-    ws_urg = _ensure_urgent_tab(wb)
+    with _WORKBOOK_LOCK:
+        _invalidate_raw_cache()
+        wb, _, _ = _open_master()
+        source = _ensure_tab(wb, SHORTLISTED_TAB_NAME, SHORTLISTED_COLUMNS)
+        urgent = _ensure_urgent_tab(wb)
+        removed = max(urgent.max_row - 1, 0)
+        if removed:
+            urgent.delete_rows(2, removed)
 
-    # Column index helpers for main sheet
-    main_hdrs = {
-        str(ws_main.cell(1, c).value or "").strip(): c
-        for c in range(1, ws_main.max_column + 1)
-    }
-    def _mc(name): return main_hdrs.get(name)
-
-    due_col  = _mc("Due Date")
-    sol_col  = _mc("Solicitation Number")
-    link_col = _mc("UiLink")
-
-    # Collect urgent-window rows from main sheet
-    candidate_rows = []   # list of (sol, link, [cell values])
-    for r in range(2, ws_main.max_row + 1):
-        due = _parse_date(ws_main.cell(r, due_col).value) if due_col else None
-        if due and today <= due < urgent_limit:
-            sol  = str(ws_main.cell(r, sol_col).value  or "").strip() if sol_col  else ""
-            link = str(ws_main.cell(r, link_col).value or "").strip() if link_col else ""
-            vals = [ws_main.cell(r, c).value for c in range(1, len(OUTPUT_COLUMNS) + 1)]
-            candidate_rows.append((sol, link, vals))
-
-    # Column helpers for Urgent tab
-    urg_hdrs = {
-        str(ws_urg.cell(1, c).value or "").strip(): c
-        for c in range(1, ws_urg.max_column + 1)
-    }
-    def _uc(name): return urg_hdrs.get(name)
-
-    urg_due_col  = _uc("Due Date")
-    urg_sol_col  = _uc("Solicitation Number")
-    urg_link_col = _uc("UiLink")
-
-    # Scan Urgent tab: collect existing keys and mark expired rows for deletion
-    existing_sols  = set()
-    existing_links = set()
-    to_delete = []
-
-    for r in range(2, ws_urg.max_row + 1):
-        due = _parse_date(ws_urg.cell(r, urg_due_col).value) if urg_due_col else None
-        if not due:
-            continue
-        if due < today:
-            to_delete.append(r)
-            continue
-        if urg_sol_col:
-            v = str(ws_urg.cell(r, urg_sol_col).value or "").strip()
-            if v: existing_sols.add(v)
-        if urg_link_col:
-            v = str(ws_urg.cell(r, urg_link_col).value or "").strip()
-            if v: existing_links.add(v)
-
-    # Delete expired rows (reverse order to keep row numbers stable)
-    for r in sorted(to_delete, reverse=True):
-        ws_urg.delete_rows(r)
-    removed = len(to_delete)
-
-    # Find next empty row
-    last_r = 1
-    for r in range(ws_urg.max_row, 1, -1):
-        if any(ws_urg.cell(r, c).value for c in range(1, len(OUTPUT_COLUMNS) + 2)):
-            last_r = r
-            break
-
-    # Append new urgent rows
-    added = 0
-    for sol, link, vals in candidate_rows:
-        is_dupe = (sol and sol in existing_sols) or (link and link in existing_links)
-        if not is_dupe:
-            last_r += 1
-            for c, v in enumerate(vals, 1):
-                ws_urg.cell(last_r, c, v)
-            if sol:  existing_sols.add(sol)
-            if link: existing_links.add(link)
+        headers = {
+            str(source.cell(1, c).value or "").strip(): c
+            for c in range(1, source.max_column + 1)
+        }
+        due_col = headers.get("Due Date")
+        added = 0
+        for row in range(2, source.max_row + 1):
+            due = _parse_date(source.cell(row, due_col).value) if due_col else None
+            if not due or not (today <= due < urgent_limit):
+                continue
             added += 1
+            for column_index, column in enumerate(OUTPUT_COLUMNS, 1):
+                source_col = headers.get(column)
+                urgent.cell(added + 1, column_index, source.cell(row, source_col).value if source_col else None)
 
-    _save_and_upload(wb)
-    log.info(f"Urgent tab: {removed} expired removed, {added} new rows added")
+        _save_and_upload(wb)
+    log.info(f"Urgent tab rebuilt from Shortlisted: {removed} removed, {added} added")
     return removed, added
 
 
@@ -621,6 +733,7 @@ def read_urgent_tab():
 # Overdue cleanup (main sheet)
 # ─────────────────────────────────────────────
 
+@_serialized_workbook_write
 def cleanup_overdue_rows() -> int:
     """
     Delete rows from the main sheet where:

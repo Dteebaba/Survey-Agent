@@ -293,6 +293,19 @@ Each row shows: timestamp (UTC), username, action, and for `progress_update` eve
 
 The live view of all federal opportunities currently tracked in the master Google Sheet.
 
+### Opportunity intake and shortlisting
+
+The solicitation workflow is split into two app workspaces and two workbook sheets:
+
+- **Find Opportunities / Opportunities sheet** — the incoming pool used for global search, filtering, and qualification selection.
+- **Shortlisted / Shortlisted sheet** — the shared active-work queue used by admins and users for Progress Report, Assigned To, and Award Status tracking.
+
+Selecting rows and clicking **Shortlist selected** copies the complete records to Shortlisted and removes them from Opportunities in one workbook upload. The application records who shortlisted each item and when. The pipeline checks both sheets when deduplicating, so moved records are not imported again.
+
+Both pages include a case-insensitive **Search all columns** box. It matches partial text across solicitation numbers, titles, agencies, dates, users, statuses, links, and other displayed fields. The sidebar and the persistent **View Shortlisted** button allow direct navigation without returning to the home page.
+
+The **Urgent** sheet is rebuilt as a read-only projection of shortlisted records due within the next 10 days.
+
 ### Controls Bar
 
 | Control | Description |
