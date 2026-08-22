@@ -1073,7 +1073,7 @@ _AWARD_STATUS_OPTIONS = [
 
 
 @st.dialog("Solicitation Details", width="large")
-def _opportunity_detail_dialog(row: dict, sol_keys: list):
+def _opportunity_detail_dialog(row: dict, sol_keys: list, sheet_row: int = 0):
     """Full detail view for one opportunity row. Called from the Opportunities table."""
     sol_num  = str(row.get("Solicitation Number", "") or "").strip()
     title    = str(row.get("Title", "") or "")
@@ -1102,7 +1102,7 @@ def _opportunity_detail_dialog(row: dict, sol_keys: list):
     st.divider()
     st.markdown("**What would you like to do with this solicitation?**")
 
-    c_sl, c_skip, c_close = st.columns([2, 1.5, 1.5])
+    c_sl, c_skip, c_del = st.columns([2, 1.5, 1.5])
     with c_sl:
         if st.button("⭐ Move to Shortlisted", type="primary", use_container_width=True,
                      key="_dlg_shortlist_btn"):
@@ -1135,9 +1135,21 @@ def _opportunity_detail_dialog(row: dict, sol_keys: list):
     with c_skip:
         if st.button("⏭ Skip for now", use_container_width=True, key="_dlg_skip_btn"):
             st.rerun()
-    with c_close:
-        if st.button("✕ Close", use_container_width=True, key="_dlg_close_btn"):
-            st.rerun()
+    with c_del:
+        if st.button("🗑️ Delete", use_container_width=True, key="_dlg_delete_opp_btn"):
+            if sheet_row < 2:
+                st.error("Cannot determine row to delete.")
+            else:
+                try:
+                    with st.spinner("Deleting…"):
+                        from google_connector import delete_expired_rows, SHEET_TAB_NAME
+                        delete_expired_rows([sheet_row], SHEET_TAB_NAME)
+                    _fetch_solicitations.clear()
+                    st.session_state.pop("opportunities_data", None)
+                    st.success("✅ Row deleted from Opportunities.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Delete failed: {exc}")
 
 
 @st.dialog("Shortlisted Record", width="large")
@@ -1191,27 +1203,30 @@ def _shortlisted_detail_dialog(row: dict, sheet_row: int, orig_index_pos: int):
     assign_idx  = assign_opts.index(cur_assigned) if cur_assigned in assign_opts else 0
     new_assigned= st.selectbox("Assigned To", assign_opts, index=assign_idx, key="_dlg_assigned")
 
-    notes_opts = list(row.get("Team Notes", "") or "")
-    new_notes  = st.text_area("Team Notes", value=str(row.get("Team Notes", "") or ""),
-                               height=80, key="_dlg_notes")
+    cur_notes  = str(row.get("Team Notes", "") or "")
+    new_notes  = st.text_area("Team Notes", value=cur_notes, height=80, key="_dlg_notes")
 
     st.write("")
     if st.button("💾 Save Changes", type="primary", use_container_width=True, key="_dlg_save"):
-        updates_prog    = {}
-        updates_award   = {}
-        updates_assigned= {}
-        if new_prog     != cur_progress: updates_prog[sheet_row]     = new_prog
-        if new_award    != cur_award:    updates_award[sheet_row]    = new_award
-        if new_assigned != cur_assigned: updates_assigned[sheet_row] = new_assigned
+        _now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        _actor = st.session_state.get("username", "unknown")
+        col_updates = {}
+        if new_prog     != cur_progress: col_updates["Progress Report"] = new_prog
+        if new_award    != cur_award:    col_updates["Award Status"]    = new_award
+        if new_assigned != cur_assigned: col_updates["Assigned To"]     = new_assigned
+        if new_notes    != cur_notes:    col_updates["Team Notes"]      = new_notes
+        if col_updates:
+            col_updates["Last Updated By"] = _actor
+            col_updates["Last Updated At"] = _now
 
         # Optimistic session_state update
-        if "sol_data" in st.session_state:
-            _df = st.session_state["sol_data"].copy()
+        if col_updates and "sol_data" in st.session_state:
+            _df  = st.session_state["sol_data"].copy()
             _pos = orig_index_pos
             if _pos < len(_df):
-                if updates_prog:     _df.at[_pos, "Progress Report"] = new_prog
-                if updates_award:    _df.at[_pos, "Award Status"]    = new_award
-                if updates_assigned: _df.at[_pos, "Assigned To"]     = new_assigned
+                for _col, _val in col_updates.items():
+                    if _col in _df.columns:
+                        _df.at[_pos, _col] = _val
             st.session_state["sol_data"] = _df
             for _col, _orig_key in [
                 ("Progress Report", "sol_original_progress"),
@@ -1221,16 +1236,11 @@ def _shortlisted_detail_dialog(row: dict, sheet_row: int, orig_index_pos: int):
                 if _col in _df.columns and st.session_state.get(_orig_key) is not None:
                     st.session_state[_orig_key] = _df[_col].copy().reset_index(drop=True)
 
-        _actor = st.session_state.get("username", "unknown")
-
-        def _bg_dlg_save(p=updates_prog, aw=updates_award, asgn=updates_assigned, actor=_actor):
-            from google_connector import (
-                update_progress_reports, update_award_status,
-                update_assigned_to, SHORTLISTED_TAB_NAME,
-            )
-            if p:    update_progress_reports(p,    SHORTLISTED_TAB_NAME)
-            if aw:   update_award_status(aw,       SHORTLISTED_TAB_NAME)
-            if asgn: update_assigned_to(asgn,      SHORTLISTED_TAB_NAME)
+        def _bg_dlg_save(updates=col_updates, srow=sheet_row):
+            if not updates:
+                return
+            from google_connector import update_shortlisted_record, SHORTLISTED_TAB_NAME
+            update_shortlisted_record(srow, updates, SHORTLISTED_TAB_NAME)
 
         threading.Thread(target=_bg_dlg_save, daemon=True).start()
         st.success("✅ Saved!")
@@ -1400,164 +1410,144 @@ def _sol_filter_and_table(df):
     _current_user = st.session_state.get("username", "")
     _has_assigned = "Assigned To" in display_df.columns
 
-    # ── Delete controls (admin only) ──────────
+    # ── Delete / details toolbar (all users) ──────────
     _viewer_is_admin = st.session_state.get("role") == "admin"
     _marked_set      = set()
     _all_sheet_rows  = [i + 2 for i in orig_index]
     _editor_key      = f"sol_editor_{_combined_filter}"
 
-    if _viewer_is_admin:
-        _marked_sheet_rows = st.session_state.get("_sol_delete_marked", [])
-        _marked_set        = set(_marked_sheet_rows)
-        _all_sheet_rows_set = set(_all_sheet_rows)
-        _all_marked        = bool(_all_sheet_rows) and _marked_set == _all_sheet_rows_set
+    _marked_sheet_rows = st.session_state.get("_sol_delete_marked", [])
+    _marked_set        = set(_marked_sheet_rows)
+    _all_sheet_rows_set = set(_all_sheet_rows)
+    _all_marked        = bool(_all_sheet_rows) and _marked_set == _all_sheet_rows_set
 
-        # Reset selection whenever the filter pill changes (before any widget)
-        if st.session_state.get("_sol_prev_filter") != _combined_filter:
-            st.session_state["_sol_prev_filter"] = _combined_filter
+    # Reset selection whenever the filter pill changes (before any widget)
+    if st.session_state.get("_sol_prev_filter") != _combined_filter:
+        st.session_state["_sol_prev_filter"] = _combined_filter
+        st.session_state.pop("_sol_delete_marked", None)
+        st.session_state.pop(_editor_key, None)   # clear stale checked rows from prior visit
+        st.session_state["_sol_chk_next"] = False
+        _marked_sheet_rows = []
+        _marked_set        = set()
+        _all_marked        = False
+
+    # Apply staged checkbox state — MUST happen before st.checkbox() renders
+    if "_sol_chk_next" in st.session_state:
+        st.session_state["select_all_chk"] = st.session_state.pop("_sol_chk_next")
+
+    # Toolbar: [Select all] [Delete N] [Clear] [View Details]
+    # Define columns first; render checkbox; run transitions; THEN render button.
+    # _n_sel must be computed AFTER transitions so the count is correct on the
+    # same run as the "Select All" click — not one rerun behind.
+    _t1, _t2, _t3, _t4, _spacer = st.columns([2, 2, 1.5, 2, 2.5])
+
+    with _t1:
+        _select_all = st.checkbox("Select all", key="select_all_chk")
+
+    # Select All / Deselect All transitions.
+    # st.rerun() after each so the data_editor re-renders on the NEXT pass
+    # with the correct pre-filled base — avoids stale visual state.
+    if _select_all and not _all_marked:
+        st.session_state["_sol_delete_marked"] = _all_sheet_rows
+        st.session_state.pop(_editor_key, None)
+        st.rerun()
+    elif not _select_all and _all_marked:
+        st.session_state.pop("_sol_delete_marked", None)
+        st.session_state.pop(_editor_key, None)
+        st.rerun()
+
+    _n_sel = len(_marked_sheet_rows)
+
+    def _execute_delete():
+        try:
+            with st.spinner(f"Deleting {_n_sel} rows…"):
+                from google_connector import delete_expired_rows as _del_rows, SHORTLISTED_TAB_NAME
+                _del_rows(_marked_sheet_rows, SHORTLISTED_TAB_NAME)
+            st.toast(f"Deleted {_n_sel} rows.", icon="✅")
             st.session_state.pop("_sol_delete_marked", None)
-            st.session_state.pop(_editor_key, None)   # clear stale checked rows from prior visit
+            st.session_state.pop(_editor_key, None)
+            st.session_state.pop("_sol_delete_confirm_conflicts", None)
             st.session_state["_sol_chk_next"] = False
-            _marked_sheet_rows = []
-            _marked_set        = set()
-            _all_marked        = False
+            _fetch_shortlisted.clear()
+            st.session_state.pop("sol_data", None)
+            st.session_state.pop("sol_original_progress", None)
+            st.session_state.pop("sol_original_assigned_to", None)
+            st.session_state.pop("sol_original_award_status", None)
+            st.rerun(scope="app")
+        except Exception as _de:
+            st.error(f"Delete failed: {_de}")
 
-        # Apply staged checkbox state — MUST happen before st.checkbox() renders
-        if "_sol_chk_next" in st.session_state:
-            st.session_state["select_all_chk"] = st.session_state.pop("_sol_chk_next")
+    with _t2:
+        if _n_sel and st.button(f"🗑️ Delete {_n_sel}", type="primary", key="delete_top_btn"):
+            # Check for rows claimed by other staff
+            _conflicts = []
+            if _has_assigned and "Assigned To" in display_df.columns:
+                for _ii in range(len(display_df)):
+                    _srow = orig_index[_ii] + 2
+                    if _srow in _marked_set:
+                        _assignee = str(display_df.iloc[_ii].get("Assigned To", "") or "").strip()
+                        if _assignee and _assignee != _current_user:
+                            _sol = str(display_df.iloc[_ii].get("Solicitation Number", ""))
+                            _conflicts.append(f"{_sol} (claimed by {_assignee})")
 
-        # Toolbar: [Select all] [Delete N] [Clear] [View Details]
-        # Define columns first; render checkbox; run transitions; THEN render button.
-        # _n_sel must be computed AFTER transitions so the count is correct on the
-        # same run as the "Select All" click — not one rerun behind.
-        _t1, _t2, _t3, _t4, _spacer = st.columns([2, 2, 1.5, 2, 2.5])
+            if _conflicts and not _viewer_is_admin:
+                st.session_state["_sol_delete_block_msg"] = (
+                    f"{len(_conflicts)} selected row(s) are claimed by other staff and cannot be deleted: "
+                    + ", ".join(_conflicts[:3])
+                    + ("…" if len(_conflicts) > 3 else "")
+                )
+                st.rerun()
+            elif _conflicts:
+                st.session_state["_sol_delete_confirm_conflicts"] = _conflicts
+                st.rerun()
+            else:
+                _execute_delete()
 
-        with _t1:
-            _select_all = st.checkbox("Select all", key="select_all_chk")
-
-        # Select All / Deselect All transitions.
-        # st.rerun() after each so the data_editor re-renders on the NEXT pass
-        # with the correct pre-filled base — avoids stale visual state.
-        if _select_all and not _all_marked:
-            st.session_state["_sol_delete_marked"] = _all_sheet_rows
-            st.session_state.pop(_editor_key, None)
-            st.rerun()
-        elif not _select_all and _all_marked:
+    with _t3:
+        if _n_sel and st.button("✕ Clear", key="clear_sel_btn"):
             st.session_state.pop("_sol_delete_marked", None)
             st.session_state.pop(_editor_key, None)
+            st.session_state["_sol_chk_next"] = False
             st.rerun()
 
-        _n_sel = len(_marked_sheet_rows)
+    with _t4:
+        if _n_sel == 1 and st.button("👁 View Details", key="view_detail_btn", use_container_width=True):
+            _detail_sheet_row = list(_marked_set)[0]
+            _detail_df_idx    = _detail_sheet_row - 2
+            if 0 <= _detail_df_idx < len(display_df):
+                _detail_row = display_df.iloc[
+                    next(i for i, idx in enumerate(orig_index) if idx == _detail_df_idx)
+                ].to_dict()
+                _shortlisted_detail_dialog(_detail_row, _detail_sheet_row, _detail_df_idx)
 
-        def _execute_delete():
-            try:
-                with st.spinner(f"Deleting {_n_sel} rows…"):
-                    from google_connector import delete_expired_rows as _del_rows, SHORTLISTED_TAB_NAME
-                    _del_rows(_marked_sheet_rows, SHORTLISTED_TAB_NAME)
-                st.toast(f"Deleted {_n_sel} rows.", icon="✅")
-                st.session_state.pop("_sol_delete_marked", None)
-                st.session_state.pop(_editor_key, None)
+    # ── Conflict UI (shown below toolbar) ──────────────────────────────────
+    _del_block  = st.session_state.pop("_sol_delete_block_msg", None)
+    _del_conf   = st.session_state.get("_sol_delete_confirm_conflicts")
+
+    if _del_block:
+        st.error(f"🚫 {_del_block}")
+
+    elif _del_conf:
+        st.warning(
+            f"⚠️ {len(_del_conf)} row(s) are claimed by other staff members. "
+            "As admin you can override. Delete anyway?"
+        )
+        _oc1, _oc2, _ = st.columns([1.5, 1.5, 7])
+        with _oc1:
+            if st.button("Delete Anyway", type="primary", key="del_override_btn", use_container_width=True):
+                _execute_delete()
+        with _oc2:
+            if st.button("Cancel", key="del_cancel_btn", use_container_width=True):
                 st.session_state.pop("_sol_delete_confirm_conflicts", None)
-                st.session_state["_sol_chk_next"] = False
-                _fetch_shortlisted.clear()
-                st.session_state.pop("sol_data", None)
-                st.session_state.pop("sol_original_progress", None)
-                st.session_state.pop("sol_original_assigned_to", None)
-                st.session_state.pop("sol_original_award_status", None)
-                st.rerun(scope="app")
-            except Exception as _de:
-                st.error(f"Delete failed: {_de}")
-
-        with _t2:
-            if _n_sel and st.button(f"🗑️ Delete {_n_sel}", type="primary", key="delete_top_btn"):
-                # Check for rows claimed by other staff
-                _conflicts = []
-                if _has_assigned and "Assigned To" in display_df.columns:
-                    for _ii in range(len(display_df)):
-                        _srow = orig_index[_ii] + 2
-                        if _srow in _marked_set:
-                            _assignee = str(display_df.iloc[_ii].get("Assigned To", "") or "").strip()
-                            if _assignee and _assignee != _current_user:
-                                _sol = str(display_df.iloc[_ii].get("Solicitation Number", ""))
-                                _conflicts.append(f"{_sol} (claimed by {_assignee})")
-
-                if _conflicts and not _viewer_is_admin:
-                    st.session_state["_sol_delete_block_msg"] = (
-                        f"{len(_conflicts)} selected row(s) are claimed by other staff and cannot be deleted: "
-                        + ", ".join(_conflicts[:3])
-                        + ("…" if len(_conflicts) > 3 else "")
-                    )
-                    st.rerun()
-                elif _conflicts:
-                    st.session_state["_sol_delete_confirm_conflicts"] = _conflicts
-                    st.rerun()
-                else:
-                    _execute_delete()
-
-        with _t3:
-            if _n_sel and st.button("✕ Clear", key="clear_sel_btn"):
-                st.session_state.pop("_sol_delete_marked", None)
-                st.session_state.pop(_editor_key, None)
-                st.session_state["_sol_chk_next"] = False
                 st.rerun()
-
-        with _t4:
-            if _n_sel == 1 and st.button("👁 View Details", key="view_detail_btn", use_container_width=True):
-                _detail_sheet_row = list(_marked_set)[0]
-                _detail_df_idx    = _detail_sheet_row - 2
-                if 0 <= _detail_df_idx < len(display_df):
-                    _detail_row = display_df.iloc[
-                        next(i for i, idx in enumerate(orig_index) if idx == _detail_df_idx)
-                    ].to_dict()
-                    _shortlisted_detail_dialog(_detail_row, _detail_sheet_row, _detail_df_idx)
-
-        # ── Conflict UI (shown below toolbar) ──────────────────────────────────
-        _del_block  = st.session_state.pop("_sol_delete_block_msg", None)
-        _del_conf   = st.session_state.get("_sol_delete_confirm_conflicts")
-
-        if _del_block:
-            st.error(f"🚫 {_del_block}")
-
-        elif _del_conf:
-            st.warning(
-                f"⚠️ {len(_del_conf)} row(s) are claimed by other staff members. "
-                "As admin you can override. Delete anyway?"
-            )
-            _oc1, _oc2, _ = st.columns([1.5, 1.5, 7])
-            with _oc1:
-                if st.button("Delete Anyway", type="primary", key="del_override_btn", use_container_width=True):
-                    _execute_delete()
-            with _oc2:
-                if st.button("Cancel", key="del_cancel_btn", use_container_width=True):
-                    st.session_state.pop("_sol_delete_confirm_conflicts", None)
-                    st.rerun()
-
-    # ── Column config ─────────────────────────
-    # ── Non-admin "View Details" row picker ───────────────────────────────────
-    if not _viewer_is_admin and len(display_df) > 0:
-        _row_labels = [
-            f"Row {i+1}  —  {str(display_df.iloc[i].get('Solicitation Number','') or '')} {str(display_df.iloc[i].get('Title','') or '')[:40]}"
-            for i in range(len(display_df))
-        ]
-        _pick_col, _view_col = st.columns([5, 2])
-        with _pick_col:
-            _picked_label = st.selectbox("Select row to review", ["—"] + _row_labels,
-                                         key="shortlisted_row_picker", label_visibility="collapsed")
-        with _view_col:
-            _picked_idx = (_row_labels.index(_picked_label) if _picked_label in _row_labels else -1)
-            if _picked_idx >= 0 and st.button("👁 View Details", key="view_detail_btn_user",
-                                               use_container_width=True):
-                _pr = display_df.iloc[_picked_idx].to_dict()
-                _shortlisted_detail_dialog(_pr, orig_index[_picked_idx] + 2, orig_index[_picked_idx])
 
     _cols = display_df.columns.tolist()
     col_cfg = {}
 
-    # Admin delete-selection column — pre-filled from current marked set
-    if _viewer_is_admin:
-        display_df = display_df.copy()
-        display_df["_delete"] = [(orig_index[i] + 2) in _marked_set for i in range(len(display_df))]
-        col_cfg["_delete"] = st.column_config.CheckboxColumn("🗑️", width=38)
+    # Delete-selection column — pre-filled from current marked set (all users)
+    display_df = display_df.copy()
+    display_df["_delete"] = [(orig_index[i] + 2) in _marked_set for i in range(len(display_df))]
+    col_cfg["_delete"] = st.column_config.CheckboxColumn("🗑️", width=38)
 
     if "Solicitation Number" in _cols:
         col_cfg["Solicitation Number"] = st.column_config.TextColumn("Sol. #", width=120)
@@ -1630,7 +1620,7 @@ def _sol_filter_and_table(df):
     # edited_df["_delete"] is always the authoritative current state.
     # When it differs from what we stored last render, persist the new selection
     # and do ONE fragment rerun so the delete button count at the top updates.
-    if _viewer_is_admin and "_delete" in edited_df.columns:
+    if "_delete" in edited_df.columns:
         _newly_marked     = [orig_index[i] + 2 for i, v in enumerate(edited_df["_delete"]) if v]
         _prev_marked      = st.session_state.get("_sol_delete_marked", [])
         if set(_newly_marked) != set(_prev_marked):
@@ -1658,10 +1648,10 @@ def _sol_filter_and_table(df):
                 updates[df_idx + 2] = str(new_val or "")
 
         if updates:
-            # Optimistic update — visible immediately, no spinner
+            # Optimistic update — only write changed rows (same pattern as Assigned To)
             full_df = st.session_state["sol_data"].copy()
-            for df_idx, new_val in zip(orig_index, edited_df["Progress Report"]):
-                full_df.at[df_idx, "Progress Report"] = str(new_val or "")
+            for _sheet_row, _new_val in updates.items():
+                full_df.at[int(_sheet_row) - 2, "Progress Report"] = _new_val
             st.session_state["sol_data"] = full_df
             st.session_state["sol_original_progress"] = (
                 full_df["Progress Report"].copy().reset_index(drop=True)
@@ -2088,7 +2078,8 @@ def show_solicitations():
                                             key="opp_review_btn"):
             _row = chosen.iloc[0].to_dict()
             _key = str(_row.get("Solicitation Number") or _row.get("UiLink") or "").strip()
-            _opportunity_detail_dialog(_row, [_key] if _key else [])
+            _opp_sheet_row = int(chosen.index[0]) + 2
+            _opportunity_detail_dialog(_row, [_key] if _key else [], sheet_row=_opp_sheet_row)
     with hint:
         st.caption("Check one row and click Review Details to see the full record, or select multiple and Shortlist them.")
 

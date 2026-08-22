@@ -628,6 +628,43 @@ def update_award_status(row_updates: dict, tab_name: str = SHEET_TAB_NAME) -> in
     return count
 
 
+@_serialized_workbook_write
+def update_shortlisted_record(sheet_row: int, updates: dict,
+                               tab_name: str = SHORTLISTED_TAB_NAME) -> int:
+    """Update multiple columns in one row with a single Drive upload.
+
+    updates: {column_name: new_value}
+    Returns 1 if anything was written, 0 otherwise.
+    Used by the detail popup so saving 3 fields costs only 1 round-trip.
+    """
+    if not updates or sheet_row < 2:
+        return 0
+
+    with _WORKBOOK_LOCK:
+        _invalidate_raw_cache()
+        wb, _, _ = _open_master()
+        ws = _ensure_tab(
+            wb, tab_name,
+            SHORTLISTED_COLUMNS if tab_name == SHORTLISTED_TAB_NAME else OUTPUT_COLUMNS,
+        )
+
+    headers = {str(ws.cell(1, c).value or "").strip(): c for c in range(1, ws.max_column + 1)}
+    if sheet_row > ws.max_row:
+        return 0
+
+    changed = 0
+    for col_name, new_val in updates.items():
+        col_idx = headers.get(col_name)
+        if col_idx:
+            ws.cell(row=sheet_row, column=col_idx, value=new_val or None)
+            changed += 1
+
+    if changed:
+        _save_and_upload(wb)
+        log.info(f"update_shortlisted_record: row {sheet_row}, {changed} column(s) written")
+    return 1 if changed else 0
+
+
 # ─────────────────────────────────────────────
 # Date helper (single value, no pandas)
 # ─────────────────────────────────────────────
@@ -711,7 +748,7 @@ def refresh_urgent_tab() -> tuple:
 def read_urgent_tab():
     """Return the Urgent sheet tab as a DataFrame."""
     import pandas as pd
-    raw = download_drive_file(SPREADSHEET_FILE_ID)
+    raw = _get_master_bytes()
     wb  = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
     if URGENT_TAB_NAME not in wb.sheetnames:
         wb.close()
