@@ -11,8 +11,9 @@ try:
 except ImportError:
     _COOKIES_AVAILABLE = False
 
-_SESSION_COOKIE   = "almor_session"
-_TIMEOUT_MINUTES  = 10
+_SESSION_COOKIE      = "almor_session"
+_INACTIVITY_MINUTES  = 10   # session expires after this many idle minutes
+_COOKIE_HOURS        = 8    # browser stores the cookie for 8 hours
 
 
 # ── Cookie helpers ────────────────────────────────────────────────────────────
@@ -37,7 +38,7 @@ def _unpack_session(raw: str):
     try:
         d = json.loads(raw)
         age = (datetime.utcnow() - datetime.fromisoformat(d["t"])).total_seconds()
-        if age > _TIMEOUT_MINUTES * 60:
+        if age > _INACTIVITY_MINUTES * 60:
             return None, None
         return d["u"], d["r"]
     except Exception:
@@ -49,7 +50,7 @@ def _set_session_cookie(cm, username: str, role: str):
         cm.set(
             _SESSION_COOKIE,
             _pack_session(username, role),
-            expires_at=datetime.now() + timedelta(minutes=_TIMEOUT_MINUTES),
+            expires_at=datetime.now() + timedelta(hours=_COOKIE_HOURS),
             key="set_sc",
         )
     except Exception:
@@ -355,17 +356,29 @@ def check_access():
     if cm:
         try:
             raw = cm.get(_SESSION_COOKIE)
-            if raw:
-                username, role = _unpack_session(raw)
-                if username:
-                    st.session_state["authenticated"] = True
-                    st.session_state["username"]      = username
-                    st.session_state["role"]          = role
-                    _set_session_cookie(cm, username, role)
-                    st.rerun()
-                    return
         except Exception:
-            pass  # cookie unreadable — fall through to login form
+            raw = None
+
+        # CookieManager is a React component — on the first render after a page
+        # refresh the browser cookie data may not have arrived yet. Allow up to
+        # 2 extra reruns before concluding there is no valid cookie.
+        if raw is None:
+            _tries = st.session_state.get("_auth_tries", 0)
+            if _tries < 2:
+                st.session_state["_auth_tries"] = _tries + 1
+                st.rerun()
+                return
+        st.session_state.pop("_auth_tries", None)
+
+        if raw:
+            username, role = _unpack_session(raw)
+            if username:
+                st.session_state["authenticated"] = True
+                st.session_state["username"]      = username
+                st.session_state["role"]          = role
+                _set_session_cookie(cm, username, role)
+                st.rerun()
+                return
 
     st.markdown(_LOGIN_CSS, unsafe_allow_html=True)
 

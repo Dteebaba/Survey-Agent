@@ -172,7 +172,10 @@ check_access()
 # First run after login: sync state from Gist then show welcome splash
 if "app_initialized" not in st.session_state:
     st.session_state["app_initialized"] = True
-    st.session_state["page"] = "welcome"
+    # Restore page from URL query param (survives browser refresh).
+    # On a fresh login the param won't be set so we land on "welcome".
+    _restore_page = st.query_params.get("page", "")
+    st.session_state["page"] = _restore_page if _restore_page else "welcome"
     st.session_state["results_ready"] = False
     st.session_state["activity_log"] = []
     st.session_state["dark_mode"] = False
@@ -180,7 +183,8 @@ if "app_initialized" not in st.session_state:
         import threading as _threading
         from agent_state import sync_from_gist, log_user_activity
         _threading.Thread(target=sync_from_gist, daemon=True).start()
-        log_user_activity(st.session_state.get("username", "unknown"), "login")
+        if not _restore_page:  # only log login event on fresh login, not refresh
+            log_user_activity(st.session_state.get("username", "unknown"), "login")
     except Exception:
         pass
 else:
@@ -201,11 +205,17 @@ with st.sidebar:
     st.divider()
     st.caption("WORKSPACES")
     if st.button("🔎 Find Opportunities", use_container_width=True, key="side_opportunities"):
-        st.session_state.page = "solicitations"; st.rerun()
+        st.session_state.page = "solicitations"
+        st.query_params["page"] = "solicitations"
+        st.rerun()
     if st.button("⭐ Shortlisted", use_container_width=True, key="side_shortlisted"):
-        st.session_state.page = "shortlisted"; st.rerun()
+        st.session_state.page = "shortlisted"
+        st.query_params["page"] = "shortlisted"
+        st.rerun()
     if st.button("⌂ Home", use_container_width=True, key="side_home"):
-        st.session_state.page = "landing"; st.rerun()
+        st.session_state.page = "landing"
+        st.query_params["page"] = "landing"
+        st.rerun()
     st.divider()
     dark_on = st.toggle("🌙 Dark Mode", value=st.session_state.get("dark_mode", False))
     if dark_on != st.session_state.get("dark_mode", False):
@@ -227,6 +237,10 @@ with st.sidebar:
 
 def goto(page: str):
     st.session_state.page = page
+    try:
+        st.query_params["page"] = page
+    except Exception:
+        pass
     st.rerun()
 
 
@@ -1058,6 +1072,170 @@ _AWARD_STATUS_OPTIONS = [
 ]
 
 
+@st.dialog("Solicitation Details", width="large")
+def _opportunity_detail_dialog(row: dict, sol_keys: list):
+    """Full detail view for one opportunity row. Called from the Opportunities table."""
+    sol_num  = str(row.get("Solicitation Number", "") or "").strip()
+    title    = str(row.get("Title", "") or "")
+    agency   = str(row.get("Agency", "") or "")
+    sol_date = str(row.get("Solicitation Date", "") or "")
+    due_date = str(row.get("Due Date", "") or "")
+    opp_type = str(row.get("Opportunity Type", "") or "")
+    set_aside= str(row.get("Normalized Set Aside", "") or "")
+    link     = str(row.get("UiLink", "") or "").strip()
+
+    st.markdown(f"### {title or '(No title)'}")
+    st.caption(f"Solicitation #{sol_num}" if sol_num else "")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**Agency:** {agency or '—'}")
+        st.markdown(f"**Posted:** {sol_date or '—'}")
+        st.markdown(f"**Due Date:** {due_date or '—'}")
+    with c2:
+        st.markdown(f"**Type:** {opp_type or '—'}")
+        st.markdown(f"**Set Aside:** {set_aside or '—'}")
+
+    if link:
+        st.link_button("🔗 Open on SAM.gov", link, use_container_width=True)
+
+    st.divider()
+    st.markdown("**What would you like to do with this solicitation?**")
+
+    c_sl, c_skip, c_close = st.columns([2, 1.5, 1.5])
+    with c_sl:
+        if st.button("⭐ Move to Shortlisted", type="primary", use_container_width=True,
+                     key="_dlg_shortlist_btn"):
+            if not sol_keys:
+                st.error("No key found for this row.")
+            else:
+                try:
+                    with st.spinner("Moving to Shortlisted…"):
+                        from google_connector import shortlist_solicitations
+                        result = shortlist_solicitations(sol_keys, st.session_state.get("username", "unknown"))
+                    try:
+                        from agent_state import log_user_activity
+                        log_user_activity(
+                            st.session_state.get("username", "unknown"),
+                            "shortlist", {"count": result["moved"], "solicitations": sol_keys},
+                        )
+                    except Exception:
+                        pass
+                    _fetch_solicitations.clear()
+                    _fetch_shortlisted.clear()
+                    _fetch_urgent.clear()
+                    st.session_state.pop("opportunities_data", None)
+                    st.session_state.pop("sol_data", None)
+                    st.success(f"✅ Moved {result['moved']} solicitation(s) to Shortlisted.")
+                    st.session_state["page"] = "shortlisted"
+                    st.query_params["page"] = "shortlisted"
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Failed: {exc}")
+    with c_skip:
+        if st.button("⏭ Skip for now", use_container_width=True, key="_dlg_skip_btn"):
+            st.rerun()
+    with c_close:
+        if st.button("✕ Close", use_container_width=True, key="_dlg_close_btn"):
+            st.rerun()
+
+
+@st.dialog("Shortlisted Record", width="large")
+def _shortlisted_detail_dialog(row: dict, sheet_row: int, orig_index_pos: int):
+    """Full detail + editable status fields for a shortlisted record."""
+    sol_num  = str(row.get("Solicitation Number", "") or "").strip()
+    title    = str(row.get("Title", "") or "")
+    agency   = str(row.get("Agency", "") or "")
+    sol_date = str(row.get("Solicitation Date", "") or "")
+    due_date = str(row.get("Due Date", "") or "")
+    opp_type = str(row.get("Opportunity Type", "") or "")
+    set_aside= str(row.get("Normalized Set Aside", "") or "")
+    link     = str(row.get("UiLink", "") or "").strip()
+
+    st.markdown(f"### {title or '(No title)'}")
+    st.caption(f"Solicitation #{sol_num}" if sol_num else "")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**Agency:** {agency or '—'}")
+        st.markdown(f"**Posted:** {sol_date or '—'}")
+        st.markdown(f"**Due Date:** {due_date or '—'}")
+    with c2:
+        st.markdown(f"**Type:** {opp_type or '—'}")
+        st.markdown(f"**Set Aside:** {set_aside or '—'}")
+        st.markdown(f"**Sheet Row:** {sheet_row}")
+
+    if link:
+        st.link_button("🔗 Open on SAM.gov", link, use_container_width=True)
+
+    st.divider()
+    st.markdown("**Update Status**")
+
+    cur_progress = str(row.get("Progress Report", "") or "")
+    cur_award    = str(row.get("Award Status", "") or "")
+    if "_user_names_cache" not in st.session_state:
+        from auth import load_users as _lu
+        st.session_state["_user_names_cache"] = [u["username"] for u in _lu()]
+    _user_names  = st.session_state["_user_names_cache"]
+    cur_assigned = str(row.get("Assigned To", "") or "")
+
+    prog_opts = _PROGRESS_OPTIONS
+    prog_idx  = prog_opts.index(cur_progress) if cur_progress in prog_opts else 0
+    new_prog  = st.selectbox("Progress Report", prog_opts, index=prog_idx, key="_dlg_prog")
+
+    award_opts= _AWARD_STATUS_OPTIONS
+    award_idx = award_opts.index(cur_award) if cur_award in award_opts else 0
+    new_award = st.selectbox("Award Status", award_opts, index=award_idx, key="_dlg_award")
+
+    assign_opts = [""] + _user_names
+    assign_idx  = assign_opts.index(cur_assigned) if cur_assigned in assign_opts else 0
+    new_assigned= st.selectbox("Assigned To", assign_opts, index=assign_idx, key="_dlg_assigned")
+
+    notes_opts = list(row.get("Team Notes", "") or "")
+    new_notes  = st.text_area("Team Notes", value=str(row.get("Team Notes", "") or ""),
+                               height=80, key="_dlg_notes")
+
+    st.write("")
+    if st.button("💾 Save Changes", type="primary", use_container_width=True, key="_dlg_save"):
+        updates_prog    = {}
+        updates_award   = {}
+        updates_assigned= {}
+        if new_prog     != cur_progress: updates_prog[sheet_row]     = new_prog
+        if new_award    != cur_award:    updates_award[sheet_row]    = new_award
+        if new_assigned != cur_assigned: updates_assigned[sheet_row] = new_assigned
+
+        # Optimistic session_state update
+        if "sol_data" in st.session_state:
+            _df = st.session_state["sol_data"].copy()
+            _pos = orig_index_pos
+            if _pos < len(_df):
+                if updates_prog:     _df.at[_pos, "Progress Report"] = new_prog
+                if updates_award:    _df.at[_pos, "Award Status"]    = new_award
+                if updates_assigned: _df.at[_pos, "Assigned To"]     = new_assigned
+            st.session_state["sol_data"] = _df
+            for _col, _orig_key in [
+                ("Progress Report", "sol_original_progress"),
+                ("Award Status",    "sol_original_award_status"),
+                ("Assigned To",     "sol_original_assigned_to"),
+            ]:
+                if _col in _df.columns and st.session_state.get(_orig_key) is not None:
+                    st.session_state[_orig_key] = _df[_col].copy().reset_index(drop=True)
+
+        _actor = st.session_state.get("username", "unknown")
+
+        def _bg_dlg_save(p=updates_prog, aw=updates_award, asgn=updates_assigned, actor=_actor):
+            from google_connector import (
+                update_progress_reports, update_award_status,
+                update_assigned_to, SHORTLISTED_TAB_NAME,
+            )
+            if p:    update_progress_reports(p,    SHORTLISTED_TAB_NAME)
+            if aw:   update_award_status(aw,       SHORTLISTED_TAB_NAME)
+            if asgn: update_assigned_to(asgn,      SHORTLISTED_TAB_NAME)
+
+        threading.Thread(target=_bg_dlg_save, daemon=True).start()
+        st.success("✅ Saved!")
+
+
 def _purge_expired(df):
     """Identify rows where Due Date is 5+ days past and Progress Report is empty.
     Returns (cleaned_df, list_of_sheet_row_numbers_to_delete).
@@ -1248,11 +1426,11 @@ def _sol_filter_and_table(df):
         if "_sol_chk_next" in st.session_state:
             st.session_state["select_all_chk"] = st.session_state.pop("_sol_chk_next")
 
-        # Toolbar: [Select all] [Delete N] [Clear]
+        # Toolbar: [Select all] [Delete N] [Clear] [View Details]
         # Define columns first; render checkbox; run transitions; THEN render button.
         # _n_sel must be computed AFTER transitions so the count is correct on the
         # same run as the "Select All" click — not one rerun behind.
-        _t1, _t2, _t3, _spacer = st.columns([2, 2, 1.5, 4.5])
+        _t1, _t2, _t3, _t4, _spacer = st.columns([2, 2, 1.5, 2, 2.5])
 
         with _t1:
             _select_all = st.checkbox("Select all", key="select_all_chk")
@@ -1323,6 +1501,16 @@ def _sol_filter_and_table(df):
                 st.session_state["_sol_chk_next"] = False
                 st.rerun()
 
+        with _t4:
+            if _n_sel == 1 and st.button("👁 View Details", key="view_detail_btn", use_container_width=True):
+                _detail_sheet_row = list(_marked_set)[0]
+                _detail_df_idx    = _detail_sheet_row - 2
+                if 0 <= _detail_df_idx < len(display_df):
+                    _detail_row = display_df.iloc[
+                        next(i for i, idx in enumerate(orig_index) if idx == _detail_df_idx)
+                    ].to_dict()
+                    _shortlisted_detail_dialog(_detail_row, _detail_sheet_row, _detail_df_idx)
+
         # ── Conflict UI (shown below toolbar) ──────────────────────────────────
         _del_block  = st.session_state.pop("_sol_delete_block_msg", None)
         _del_conf   = st.session_state.get("_sol_delete_confirm_conflicts")
@@ -1345,6 +1533,23 @@ def _sol_filter_and_table(df):
                     st.rerun()
 
     # ── Column config ─────────────────────────
+    # ── Non-admin "View Details" row picker ───────────────────────────────────
+    if not _viewer_is_admin and len(display_df) > 0:
+        _row_labels = [
+            f"Row {i+1}  —  {str(display_df.iloc[i].get('Solicitation Number','') or '')} {str(display_df.iloc[i].get('Title','') or '')[:40]}"
+            for i in range(len(display_df))
+        ]
+        _pick_col, _view_col = st.columns([5, 2])
+        with _pick_col:
+            _picked_label = st.selectbox("Select row to review", ["—"] + _row_labels,
+                                         key="shortlisted_row_picker", label_visibility="collapsed")
+        with _view_col:
+            _picked_idx = (_row_labels.index(_picked_label) if _picked_label in _row_labels else -1)
+            if _picked_idx >= 0 and st.button("👁 View Details", key="view_detail_btn_user",
+                                               use_container_width=True):
+                _pr = display_df.iloc[_picked_idx].to_dict()
+                _shortlisted_detail_dialog(_pr, orig_index[_picked_idx] + 2, orig_index[_picked_idx])
+
     _cols = display_df.columns.tolist()
     col_cfg = {}
 
@@ -1838,7 +2043,7 @@ def show_solicitations():
     )
     chosen = edited[edited["_shortlist"]]
     chosen_count = len(chosen)
-    action, hint = st.columns([3, 7])
+    action, review_col, hint = st.columns([3, 2, 5])
     with action:
         if st.button(
             f"⭐ Shortlist selected ({chosen_count})",
@@ -1874,11 +2079,18 @@ def show_solicitations():
                 st.session_state.pop("sol_data", None)
                 st.success(f"Moved {result['moved']} solicitation(s) to Shortlisted.")
                 st.session_state.page = "shortlisted"
+                st.query_params["page"] = "shortlisted"
                 st.rerun()
             except Exception as exc:
                 st.error(f"Shortlisting failed; no partial move was saved. {exc}")
+    with review_col:
+        if chosen_count == 1 and st.button("👁 Review Details", use_container_width=True,
+                                            key="opp_review_btn"):
+            _row = chosen.iloc[0].to_dict()
+            _key = str(_row.get("Solicitation Number") or _row.get("UiLink") or "").strip()
+            _opportunity_detail_dialog(_row, [_key] if _key else [])
     with hint:
-        st.caption("Selection moves the records out of Opportunities and into the shared Shortlisted worksheet in one save.")
+        st.caption("Check one row and click Review Details to see the full record, or select multiple and Shortlist them.")
 
 
 @st.fragment(run_every=1)
