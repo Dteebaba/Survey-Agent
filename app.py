@@ -148,17 +148,17 @@ def _workspace_guide(kind: str):
 # Shared workspaces use a short TTL so team changes appear promptly. Manual
 # refresh and every successful write also clear the relevant cache immediately.
 # -------------------------------------------------
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def _fetch_solicitations():
     from google_connector import read_master_sheet
     return read_master_sheet()
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def _fetch_urgent():
     from google_connector import read_urgent_tab
     return read_urgent_tab()
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def _fetch_shortlisted():
     from google_connector import read_shortlisted_sheet
     return read_shortlisted_sheet()
@@ -187,6 +187,16 @@ if "app_initialized" not in st.session_state:
             log_user_activity(st.session_state.get("username", "unknown"), "login")
     except Exception:
         pass
+    # Warm all three sheet caches in the background so navigation is instant
+    def _preload_caches():
+        try:
+            _fetch_solicitations()
+            _fetch_shortlisted()
+            _fetch_urgent()
+        except Exception:
+            pass
+    import threading as _t2
+    _t2.Thread(target=_preload_caches, daemon=True).start()
 else:
     st.session_state.setdefault("page", "landing")
     st.session_state.setdefault("results_ready", False)
