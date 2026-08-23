@@ -2066,8 +2066,33 @@ def show_solicitations():
         st.info("No opportunities match the current search and filters.")
         return
 
+    _opp_is_admin   = st.session_state.get("role") == "admin"
+    _opp_editor_key = f"opportunities_selector_{selected_set_aside}_{urgent_only}_{search}"
+
+    # Reset select-all when filter changes
+    if st.session_state.get("_opp_prev_filter") != _opp_editor_key:
+        st.session_state["_opp_prev_filter"] = _opp_editor_key
+        st.session_state.pop("_opp_select_all", None)
+        st.session_state.pop(_opp_editor_key, None)
+
+    _opp_all_selected = st.session_state.get("_opp_select_all", False)
+
+    # ── Toolbar ───────────────────────────────────────────────────────────────
+    _ot1, _ot2, _ot3, _spacer_opp = st.columns([2, 2.5, 1.5, 4])
+    with _ot1:
+        _sel_all_opp = st.checkbox("Select all", key="opp_select_all_chk",
+                                   value=_opp_all_selected)
+    if _sel_all_opp and not _opp_all_selected:
+        st.session_state["_opp_select_all"] = True
+        st.session_state.pop(_opp_editor_key, None)
+        st.rerun()
+    elif not _sel_all_opp and _opp_all_selected:
+        st.session_state["_opp_select_all"] = False
+        st.session_state.pop(_opp_editor_key, None)
+        st.rerun()
+
     table = df.copy()
-    table.insert(0, "_shortlist", False)
+    table.insert(0, "_shortlist", _opp_all_selected)
     preferred = [
         "_shortlist", "Solicitation Number", "Title", "Agency", "Solicitation Date",
         "Due Date", "Opportunity Type", "Normalized Set Aside", "UiLink",
@@ -2086,11 +2111,17 @@ def show_solicitations():
         use_container_width=True,
         num_rows="fixed",
         height=600,
-        key="opportunities_selector",
+        key=_opp_editor_key,
     )
     chosen = edited[edited["_shortlist"]]
     chosen_count = len(chosen)
-    action, review_col, hint = st.columns([3, 2, 5])
+
+    # ── Action buttons ────────────────────────────────────────────────────────
+    if _opp_is_admin:
+        action, del_col, review_col, hint = st.columns([3, 2.5, 2, 2.5])
+    else:
+        action, review_col, hint = st.columns([3, 2, 5])
+
     with action:
         if st.button(
             f"⭐ Shortlist selected ({chosen_count})",
@@ -2124,12 +2155,32 @@ def show_solicitations():
                 _fetch_urgent.clear()
                 st.session_state.pop("opportunities_data", None)
                 st.session_state.pop("sol_data", None)
+                st.session_state.pop("_opp_select_all", None)
                 st.success(f"Moved {result['moved']} solicitation(s) to Shortlisted.")
                 st.session_state.page = "shortlisted"
                 st.query_params["page"] = "shortlisted"
                 st.rerun()
             except Exception as exc:
                 st.error(f"Shortlisting failed; no partial move was saved. {exc}")
+
+    if _opp_is_admin:
+        with del_col:
+            if chosen_count and st.button(f"🗑️ Delete ({chosen_count})", use_container_width=True,
+                                           key="opp_delete_btn"):
+                _sheet_rows = [int(idx) + 2 for idx in chosen.index]
+                try:
+                    with st.spinner(f"Deleting {chosen_count} row(s)…"):
+                        from google_connector import delete_expired_rows, SHEET_TAB_NAME
+                        delete_expired_rows(_sheet_rows, SHEET_TAB_NAME)
+                    _fetch_solicitations.clear()
+                    st.session_state.pop("opportunities_data", None)
+                    st.session_state.pop("_opp_select_all", None)
+                    st.session_state.pop(_opp_editor_key, None)
+                    st.toast(f"Deleted {chosen_count} row(s).", icon="✅")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Delete failed: {exc}")
+
     with review_col:
         if chosen_count == 1 and st.button("👁 Review Details", use_container_width=True,
                                             key="opp_review_btn"):
@@ -2138,7 +2189,10 @@ def show_solicitations():
             _opp_sheet_row = int(chosen.index[0]) + 2
             _opportunity_detail_dialog(_row, [_key] if _key else [], sheet_row=_opp_sheet_row)
     with hint:
-        st.caption("Check one row and click Review Details to see the full record, or select multiple and Shortlist them.")
+        if _opp_is_admin:
+            st.caption("Select rows to Shortlist or Delete. Admins can bulk-delete.")
+        else:
+            st.caption("Check rows and Shortlist them, or select one to Review Details.")
 
 
 @st.fragment(run_every=1)
