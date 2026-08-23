@@ -2151,30 +2151,16 @@ def show_solicitations():
         with _ot2:
             st.caption("← Select All for bulk actions, or click any row to review it")
 
-    # ── Table (click a row to open the action card) ───────────────────────────
-    preferred = [
-        "Solicitation Number", "Title", "Agency", "Solicitation Date",
-        "Due Date", "Opportunity Type", "Normalized Set Aside", "UiLink",
-    ]
-    column_order = [c for c in preferred if c in df.columns]
-    _tbl_config = {
-        "UiLink": st.column_config.LinkColumn("SAM.gov", display_text="Open", width="small"),
-    }
-    _sel_result = st.dataframe(
-        df,
-        column_config=_tbl_config,
-        column_order=column_order,
-        hide_index=True,
-        use_container_width=True,
-        height=440,
-        on_select="rerun",
-        selection_mode="single-row",
-        key=_opp_table_key,
+    # ── Action card ABOVE the table ───────────────────────────────────────────
+    # on_select="rerun" stores the new selection in session_state[key] before
+    # the script reruns, so we can read it here — before rendering the table —
+    # and show the card at the top of the page.
+    _pre_state = st.session_state.get(_opp_table_key, {})
+    _sel_rows  = (
+        _pre_state.get("selection", {}).get("rows", [])
+        if isinstance(_pre_state, dict) else []
     )
-
-    # ── Inline action card (appears below the table when a row is clicked) ────
-    _sel_rows = _sel_result.selection.rows
-    if _sel_rows:
+    if _sel_rows and _sel_rows[0] < len(df):
         _si         = _sel_rows[0]
         _sel_row    = df.iloc[_si].to_dict()
         _sel_df_idx = df.index[_si]
@@ -2256,6 +2242,24 @@ def show_solicitations():
                     if st.button("Cancel", key="opp_card_delete_cancel"):
                         st.session_state.pop("_opp_confirm_delete_one", None)
                         st.rerun()
+
+    # ── Table (below the card) ────────────────────────────────────────────────
+    preferred = [
+        "Solicitation Number", "Title", "Agency", "Solicitation Date",
+        "Due Date", "Opportunity Type", "Normalized Set Aside", "UiLink",
+    ]
+    column_order = [c for c in preferred if c in df.columns]
+    st.dataframe(
+        df,
+        column_config={"UiLink": st.column_config.LinkColumn("SAM.gov", display_text="Open", width="small")},
+        column_order=column_order,
+        hide_index=True,
+        use_container_width=True,
+        height=440,
+        on_select="rerun",
+        selection_mode="single-row",
+        key=_opp_table_key,
+    )
 
 
 @st.fragment(run_every=1)
