@@ -214,6 +214,7 @@ def _ensure_tab(wb, tab_name: str, columns: list):
 def _save_and_upload(wb) -> None:
     buf = io.BytesIO()
     wb.save(buf)
+    wb.close()
     data = buf.getvalue()
     upload_drive_file(
         SPREADSHEET_FILE_ID,
@@ -485,6 +486,76 @@ def shortlist_solicitations(record_keys: list, actor: str) -> dict:
         else:
             wb.close()
         return {"moved": moved, "skipped": skipped, "missing": len(wanted) - moved - skipped}
+
+
+def _worksheet_record_key(ws, row: int, headers: dict) -> str:
+    """Return the stable solicitation identifier used by the scraper."""
+    sol_col = headers.get("Solicitation Number")
+    link_col = headers.get("UiLink")
+    sol = str(ws.cell(row, sol_col).value or "").strip() if sol_col else ""
+    link = str(ws.cell(row, link_col).value or "").strip() if link_col else ""
+    return sol or link
+
+
+@_serialized_workbook_write
+def update_records_by_key(record_updates: dict, tab_name: str = SHORTLISTED_TAB_NAME) -> dict:
+    """Apply changes to several records with one download and one upload.
+
+    ``record_updates`` is ``{solicitation_number_or_link: {column: value}}``.
+    Keys are resolved against the fresh workbook, so row insertions/deletions
+    cannot redirect an edit to another solicitation.
+    """
+    wanted = {str(key).strip(): changes for key, changes in record_updates.items() if str(key).strip() and changes}
+    if not wanted:
+        return {"updated": 0, "missing": []}
+
+    wb, _, _ = _open_master()
+    ws = _ensure_tab(wb, tab_name, SHORTLISTED_COLUMNS if tab_name == SHORTLISTED_TAB_NAME else OUTPUT_COLUMNS)
+    headers = {str(ws.cell(1, col).value or "").strip(): col for col in range(1, ws.max_column + 1)}
+    found = set()
+    changed = 0
+    for row in range(2, ws.max_row + 1):
+        key = _worksheet_record_key(ws, row, headers)
+        changes = wanted.get(key)
+        if not changes:
+            continue
+        found.add(key)
+        for column, value in changes.items():
+            col = headers.get(column)
+            if col:
+                ws.cell(row, col, value=value or None)
+                changed += 1
+
+    if changed:
+        _save_and_upload(wb)
+    else:
+        wb.close()
+    return {"updated": len(found), "missing": sorted(set(wanted) - found)}
+
+
+@_serialized_workbook_write
+def delete_records_by_key(record_keys: list, tab_name: str = SHORTLISTED_TAB_NAME) -> dict:
+    """Delete records by stable key with one fresh-workbook upload."""
+    wanted = {str(key).strip() for key in record_keys if str(key).strip()}
+    if not wanted:
+        return {"deleted": 0, "missing": []}
+    wb, _, _ = _open_master()
+    ws = _ensure_tab(wb, tab_name, SHORTLISTED_COLUMNS if tab_name == SHORTLISTED_TAB_NAME else OUTPUT_COLUMNS)
+    headers = {str(ws.cell(1, col).value or "").strip(): col for col in range(1, ws.max_column + 1)}
+    rows = []
+    found = set()
+    for row in range(2, ws.max_row + 1):
+        key = _worksheet_record_key(ws, row, headers)
+        if key in wanted:
+            rows.append(row)
+            found.add(key)
+    for row in reversed(rows):
+        ws.delete_rows(row)
+    if rows:
+        _save_and_upload(wb)
+    else:
+        wb.close()
+    return {"deleted": len(rows), "missing": sorted(wanted - found)}
 
 
 @_serialized_workbook_write

@@ -72,6 +72,37 @@ class ShortlistTests(unittest.TestCase):
         self.assertEqual(solicitations, {"SOL-001", "SOL-002"})
         self.assertEqual(links, {"https://sam.gov/1", "https://sam.gov/2"})
 
+    def test_keyed_update_survives_row_shift_and_uses_one_upload(self):
+        with patch.object(connector, "download_drive_file", side_effect=self.download), patch.object(
+            connector, "upload_drive_file", side_effect=self.upload
+        ) as upload:
+            connector.shortlist_solicitations(["SOL-001", "SOL-002"], "tobi")
+            connector._invalidate_raw_cache()
+            # Delete the first row so SOL-002 is no longer at its original row.
+            connector.delete_records_by_key(["SOL-001"])
+            connector._invalidate_raw_cache()
+            upload.reset_mock()
+            result = connector.update_records_by_key({"SOL-002": {"Assigned To": "ada", "Team Notes": "Ready"}})
+
+        self.assertEqual(result, {"updated": 1, "missing": []})
+        self.assertEqual(upload.call_count, 1)
+        workbook = openpyxl.load_workbook(io.BytesIO(self.remote_bytes), data_only=True)
+        sheet = workbook[connector.SHORTLISTED_TAB_NAME]
+        headers = [cell.value for cell in sheet[1]]
+        self.assertEqual(sheet.cell(2, headers.index("Solicitation Number") + 1).value, "SOL-002")
+        self.assertEqual(sheet.cell(2, headers.index("Assigned To") + 1).value, "ada")
+        self.assertEqual(sheet.cell(2, headers.index("Team Notes") + 1).value, "Ready")
+
+    def test_keyed_delete_reports_missing_records(self):
+        with patch.object(connector, "download_drive_file", side_effect=self.download), patch.object(
+            connector, "upload_drive_file", side_effect=self.upload
+        ):
+            connector.shortlist_solicitations(["SOL-001"], "tobi")
+            connector._invalidate_raw_cache()
+            result = connector.delete_records_by_key(["SOL-001", "SOL-999"])
+
+        self.assertEqual(result, {"deleted": 1, "missing": ["SOL-999"]})
+
 
 if __name__ == "__main__":
     unittest.main()

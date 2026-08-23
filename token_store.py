@@ -7,8 +7,12 @@ Service account JSON stored in GOOGLE_SERVICE_ACCOUNT_JSON environment variable
 import os
 import json
 import logging
+import threading
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
+_TOKEN_LOCK = threading.Lock()
+_TOKEN_CACHE = {"token": None, "expires_at": None}
 
 
 def _get_service_account_credentials():
@@ -29,7 +33,17 @@ def get_token(service: str = "google-drive") -> str:
     Get a valid Bearer token using the service account.
     Automatically refreshes — never expires.
     """
+    now = datetime.now(timezone.utc)
+    if (_TOKEN_CACHE["token"] and _TOKEN_CACHE["expires_at"] and
+            now < _TOKEN_CACHE["expires_at"] - timedelta(minutes=5)):
+        return _TOKEN_CACHE["token"]
+
     try:
+        _TOKEN_LOCK.acquire()
+        now = datetime.now(timezone.utc)
+        if (_TOKEN_CACHE["token"] and _TOKEN_CACHE["expires_at"] and
+                now < _TOKEN_CACHE["expires_at"] - timedelta(minutes=5)):
+            return _TOKEN_CACHE["token"]
         import google.auth.transport.requests
         import google.oauth2.service_account
 
@@ -44,12 +58,18 @@ def get_token(service: str = "google-drive") -> str:
         request = google.auth.transport.requests.Request()
         credentials.refresh(request)
 
+        _TOKEN_CACHE["token"] = credentials.token
+        _TOKEN_CACHE["expires_at"] = credentials.expiry or (now + timedelta(minutes=50))
+
         logger.info("✅ Service account token obtained")
         return credentials.token
 
     except Exception as e:
         logger.error(f"Service account auth failed: {e}")
         raise
+    finally:
+        if _TOKEN_LOCK.locked():
+            _TOKEN_LOCK.release()
 
 
 def get_proxy_config() -> dict:

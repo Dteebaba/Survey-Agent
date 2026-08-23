@@ -1,6 +1,8 @@
 import streamlit as st
 import json
 import hashlib
+import hmac
+import base64
 import requests
 import os
 from datetime import datetime, timedelta
@@ -26,17 +28,41 @@ def _cm():
 
 
 def _pack_session(username: str, role: str) -> str:
-    return json.dumps({
+    payload = json.dumps({
         "u": username,
         "r": role,
         "t": datetime.utcnow().isoformat(),
-    })
+    }, separators=(",", ":"))
+    secret = _session_secret()
+    if not secret:
+        return ""
+    signature = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).digest()
+    return (
+        base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii")
+        + "."
+        + base64.urlsafe_b64encode(signature).decode("ascii")
+    )
+
+
+def _session_secret() -> bytes | None:
+    """Use deployment credentials to sign browser sessions."""
+    value = os.getenv("SESSION_SECRET") or os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+    return value.encode("utf-8") if value else None
 
 
 def _unpack_session(raw: str):
     """Return (username, role) or (None, None) if expired or invalid."""
     try:
-        d = json.loads(raw)
+        encoded_payload, encoded_signature = raw.split(".", 1)
+        payload = base64.urlsafe_b64decode(encoded_payload.encode("ascii"))
+        signature = base64.urlsafe_b64decode(encoded_signature.encode("ascii"))
+        secret = _session_secret()
+        if not secret:
+            return None, None
+        expected = hmac.new(secret, payload, hashlib.sha256).digest()
+        if not hmac.compare_digest(signature, expected):
+            return None, None
+        d = json.loads(payload.decode("utf-8"))
         age = (datetime.utcnow() - datetime.fromisoformat(d["t"])).total_seconds()
         if age > _INACTIVITY_MINUTES * 60:
             return None, None
@@ -47,9 +73,12 @@ def _unpack_session(raw: str):
 
 def _set_session_cookie(cm, username: str, role: str):
     try:
+        value = _pack_session(username, role)
+        if not value:
+            return
         cm.set(
             _SESSION_COOKIE,
-            _pack_session(username, role),
+            value,
             expires_at=datetime.now() + timedelta(hours=_COOKIE_HOURS),
             key="set_sc",
         )
@@ -372,6 +401,20 @@ def check_access():
 
         if raw:
             username, role = _unpack_session(raw)
+            if username:
+                current_user = next(
+                    (u for u in load_users() if u.get("username", "").lower() == username.lower()),
+                    None,
+                )
+                if not current_user:
+                    try:
+                        cm.delete(_SESSION_COOKIE, key="del_invalid_sc")
+                    except Exception:
+                        pass
+                    username = None
+                else:
+                    username = current_user["username"]
+                    role = current_user.get("role", "user")
             if username:
                 st.session_state["authenticated"] = True
                 st.session_state["username"]      = username

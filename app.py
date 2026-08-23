@@ -1236,14 +1236,23 @@ def _shortlisted_detail_dialog(row: dict, sheet_row: int, orig_index_pos: int):
                 if _col in _df.columns and st.session_state.get(_orig_key) is not None:
                     st.session_state[_orig_key] = _df[_col].copy().reset_index(drop=True)
 
-        def _bg_dlg_save(updates=col_updates, srow=sheet_row):
-            if not updates:
-                return
-            from google_connector import update_shortlisted_record, SHORTLISTED_TAB_NAME
-            update_shortlisted_record(srow, updates, SHORTLISTED_TAB_NAME)
-
-        threading.Thread(target=_bg_dlg_save, daemon=True).start()
-        st.success("✅ Saved!")
+        if not col_updates:
+            st.info("No changes to save.")
+        else:
+            try:
+                from google_connector import update_records_by_key, SHORTLISTED_TAB_NAME
+                _record_key = sol_num or link
+                with st.spinner("Saving changes…"):
+                    _result = update_records_by_key(
+                        {_record_key: col_updates}, SHORTLISTED_TAB_NAME
+                    )
+                if _result["updated"]:
+                    _fetch_shortlisted.clear()
+                    st.success("✅ Saved to the sheet.")
+                else:
+                    st.error("This solicitation was no longer present. Refresh and try again.")
+            except Exception as exc:
+                st.error(f"Save failed. Your values remain visible; please retry. {exc}")
 
 
 def _purge_expired(df):
@@ -1458,12 +1467,24 @@ def _sol_filter_and_table(df):
 
     _n_sel = len(_marked_sheet_rows)
 
+    # Resolve the visible selection to stable scraper keys. The connector
+    # re-finds these keys in a fresh workbook before deleting anything.
+    _selected_keys = []
+    for _ii, _df_index in enumerate(orig_index):
+        if _df_index + 2 in _marked_set:
+            _selected_row = display_df.iloc[_ii]
+            _selected_key = str(_selected_row.get("Solicitation Number", "") or "").strip()
+            if not _selected_key:
+                _selected_key = str(_selected_row.get("UiLink", "") or "").strip()
+            if _selected_key:
+                _selected_keys.append(_selected_key)
+
     def _execute_delete():
         try:
             with st.spinner(f"Deleting {_n_sel} rows…"):
-                from google_connector import delete_expired_rows as _del_rows, SHORTLISTED_TAB_NAME
-                _del_rows(_marked_sheet_rows, SHORTLISTED_TAB_NAME)
-            st.toast(f"Deleted {_n_sel} rows.", icon="✅")
+                from google_connector import delete_records_by_key, SHORTLISTED_TAB_NAME
+                _delete_result = delete_records_by_key(_selected_keys, SHORTLISTED_TAB_NAME)
+            st.toast(f"Deleted {_delete_result['deleted']} rows.", icon="✅")
             st.session_state.pop("_sol_delete_marked", None)
             st.session_state.pop(_editor_key, None)
             st.session_state.pop("_sol_delete_confirm_conflicts", None)
@@ -1597,7 +1618,7 @@ def _sol_filter_and_table(df):
     all_cols     = display_df.columns.tolist()
     column_order = [c for c in _preferred_order if c in all_cols]
     editable     = (
-        (["_delete"] if _viewer_is_admin else []) +
+        ["_delete"] +
         (["Progress Report"] if "Progress Report" in _cols else []) +
         (["Award Status"] if _has_award else []) +
         (["Assigned To"] if _has_assigned else [])
@@ -1659,6 +1680,14 @@ def _sol_filter_and_table(df):
 
             _save_result: dict = {}
             _actor = st.session_state.get("username", "unknown")
+            _keyed_progress = {}
+            for _sheet_row, _new_val in updates.items():
+                _row = full_df.iloc[int(_sheet_row) - 2]
+                _key = str(_row.get("Solicitation Number", "") or "").strip() or str(
+                    _row.get("UiLink", "") or ""
+                ).strip()
+                if _key:
+                    _keyed_progress[_key] = {"Progress Report": _new_val}
 
             # Capture changed statuses for activity logging
             _changed = []
@@ -1669,10 +1698,12 @@ def _sol_filter_and_table(df):
                 old_val = str(original_prog.iloc[row_pos] if row_pos < len(original_prog) else "")
                 _changed.append({"solicitation": str(sol_num), "old_status": old_val, "new_status": str(new_val)})
 
-            def _bg_save(u=updates, r=_save_result, actor=_actor, changed=_changed):
+            def _bg_save(u=_keyed_progress, r=_save_result, actor=_actor, changed=_changed):
                 try:
-                    from google_connector import update_progress_reports, SHORTLISTED_TAB_NAME
-                    r["count"] = update_progress_reports(u, SHORTLISTED_TAB_NAME)
+                    from google_connector import update_records_by_key, SHORTLISTED_TAB_NAME
+                    _saved = update_records_by_key(u, SHORTLISTED_TAB_NAME)
+                    r["count"] = _saved["updated"]
+                    r["missing"] = _saved["missing"]
                     r["ok"] = True
                     # Log each status change
                     from agent_state import log_user_activity
@@ -1714,11 +1745,21 @@ def _sol_filter_and_table(df):
 
             _assigned_result: dict = {}
             _actor2 = st.session_state.get("username", "unknown")
+            _keyed_assigned = {}
+            for _sheet_row, _new_val in _assigned_updates.items():
+                _row = full_df.iloc[int(_sheet_row) - 2]
+                _key = str(_row.get("Solicitation Number", "") or "").strip() or str(
+                    _row.get("UiLink", "") or ""
+                ).strip()
+                if _key:
+                    _keyed_assigned[_key] = {"Assigned To": _new_val}
 
-            def _bg_save_assigned(u=_assigned_updates, r=_assigned_result, actor=_actor2):
+            def _bg_save_assigned(u=_keyed_assigned, r=_assigned_result, actor=_actor2):
                 try:
-                    from google_connector import update_assigned_to, SHORTLISTED_TAB_NAME
-                    r["count"] = update_assigned_to(u, SHORTLISTED_TAB_NAME)
+                    from google_connector import update_records_by_key, SHORTLISTED_TAB_NAME
+                    _saved = update_records_by_key(u, SHORTLISTED_TAB_NAME)
+                    r["count"] = _saved["updated"]
+                    r["missing"] = _saved["missing"]
                     r["ok"] = True
                     from agent_state import log_user_activity
                     log_user_activity(actor, "assigned_to_update", {"rows": list(u.keys())})
@@ -1755,11 +1796,21 @@ def _sol_filter_and_table(df):
 
             _award_result: dict = {}
             _actor3 = st.session_state.get("username", "unknown")
+            _keyed_award = {}
+            for _sheet_row, _new_val in _award_updates.items():
+                _row = full_df.iloc[int(_sheet_row) - 2]
+                _key = str(_row.get("Solicitation Number", "") or "").strip() or str(
+                    _row.get("UiLink", "") or ""
+                ).strip()
+                if _key:
+                    _keyed_award[_key] = {"Award Status": _new_val}
 
-            def _bg_save_award(u=_award_updates, r=_award_result, actor=_actor3):
+            def _bg_save_award(u=_keyed_award, r=_award_result, actor=_actor3):
                 try:
-                    from google_connector import update_award_status, SHORTLISTED_TAB_NAME
-                    r["count"] = update_award_status(u, SHORTLISTED_TAB_NAME)
+                    from google_connector import update_records_by_key, SHORTLISTED_TAB_NAME
+                    _saved = update_records_by_key(u, SHORTLISTED_TAB_NAME)
+                    r["count"] = _saved["updated"]
+                    r["missing"] = _saved["missing"]
                     r["ok"] = True
                     from agent_state import log_user_activity
                     log_user_activity(actor, "award_status_update", {"rows": list(u.keys())})
