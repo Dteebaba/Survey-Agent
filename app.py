@@ -2066,133 +2066,160 @@ def show_solicitations():
         st.info("No opportunities match the current search and filters.")
         return
 
-    _opp_is_admin   = st.session_state.get("role") == "admin"
-    _opp_editor_key = f"opportunities_selector_{selected_set_aside}_{urgent_only}_{search}"
+    _opp_is_admin  = st.session_state.get("role") == "admin"
+    _opp_filter_id = f"{selected_set_aside}|{urgent_only}|{search}"
+    _opp_table_key = f"opp_tbl_{_opp_filter_id}_{st.session_state.get('_opp_tbl_ver', 0)}"
 
-    # Reset select-all when filter changes
-    if st.session_state.get("_opp_prev_filter") != _opp_editor_key:
-        st.session_state["_opp_prev_filter"] = _opp_editor_key
-        st.session_state.pop("_opp_select_all", None)
-        st.session_state.pop(_opp_editor_key, None)
+    # Reset bulk-select state when filter changes
+    if st.session_state.get("_opp_prev_filter") != _opp_filter_id:
+        st.session_state["_opp_prev_filter"] = _opp_filter_id
+        st.session_state.pop("_opp_bulk_select", None)
 
-    _opp_all_selected = st.session_state.get("_opp_select_all", False)
+    _opp_bulk = st.session_state.get("_opp_bulk_select", False)
 
-    # ── Toolbar ───────────────────────────────────────────────────────────────
-    _ot1, _ot2, _ot3, _spacer_opp = st.columns([2, 2.5, 1.5, 4])
+    # ── Bulk toolbar (Select All) ─────────────────────────────────────────────
+    _ot1, _ot2, _ot3, _spacer_opp = st.columns([2, 3, 2.5, 2.5])
     with _ot1:
-        _sel_all_opp = st.checkbox("Select all", key="opp_select_all_chk",
-                                   value=_opp_all_selected)
-    if _sel_all_opp and not _opp_all_selected:
-        st.session_state["_opp_select_all"] = True
-        st.session_state.pop(_opp_editor_key, None)
-        st.rerun()
-    elif not _sel_all_opp and _opp_all_selected:
-        st.session_state["_opp_select_all"] = False
-        st.session_state.pop(_opp_editor_key, None)
+        _bulk_chk = st.checkbox("Select all", key="opp_bulk_chk", value=_opp_bulk)
+    if _bulk_chk != _opp_bulk:
+        st.session_state["_opp_bulk_select"] = _bulk_chk
         st.rerun()
 
-    table = df.copy()
-    table.insert(0, "_shortlist", _opp_all_selected)
+    if _opp_bulk:
+        with _ot2:
+            if st.button(f"⭐ Shortlist all ({len(df)})", type="primary",
+                         use_container_width=True, key="opp_shortlist_all"):
+                _all_keys = []
+                for _, _r in df.iterrows():
+                    _k = str(_r.get("Solicitation Number", "") or "").strip() or \
+                         str(_r.get("UiLink", "") or "").strip()
+                    if _k:
+                        _all_keys.append(_k)
+                try:
+                    with st.spinner("Moving all to Shortlisted…"):
+                        from google_connector import shortlist_solicitations
+                        _res = shortlist_solicitations(_all_keys, st.session_state.get("username", "unknown"))
+                    _fetch_solicitations.clear(); _fetch_shortlisted.clear(); _fetch_urgent.clear()
+                    st.session_state.pop("opportunities_data", None)
+                    st.session_state.pop("sol_data", None)
+                    st.session_state.pop("_opp_bulk_select", None)
+                    st.session_state.page = "shortlisted"
+                    st.query_params["page"] = "shortlisted"
+                    st.rerun()
+                except Exception as _exc:
+                    st.error(f"Shortlisting failed: {_exc}")
+        if _opp_is_admin:
+            with _ot3:
+                if st.button(f"🗑️ Delete all ({len(df)})", use_container_width=True,
+                             key="opp_delete_all"):
+                    _all_rows = [int(i) + 2 for i in df.index]
+                    try:
+                        with st.spinner(f"Deleting {len(df)} rows…"):
+                            from google_connector import delete_expired_rows, SHEET_TAB_NAME
+                            delete_expired_rows(_all_rows, SHEET_TAB_NAME)
+                        _fetch_solicitations.clear()
+                        st.session_state.pop("opportunities_data", None)
+                        st.session_state.pop("_opp_bulk_select", None)
+                        st.toast(f"Deleted {len(df)} rows.", icon="✅")
+                        st.rerun()
+                    except Exception as _exc:
+                        st.error(f"Delete failed: {_exc}")
+    else:
+        with _ot2:
+            st.caption("← Select All for bulk actions, or click any row to review it")
+
+    # ── Table (click a row to open the action card) ───────────────────────────
     preferred = [
-        "_shortlist", "Solicitation Number", "Title", "Agency", "Solicitation Date",
+        "Solicitation Number", "Title", "Agency", "Solicitation Date",
         "Due Date", "Opportunity Type", "Normalized Set Aside", "UiLink",
     ]
-    column_order = [column for column in preferred if column in table.columns]
-    config = {
-        "_shortlist": st.column_config.CheckboxColumn("Select", width="small"),
+    column_order = [c for c in preferred if c in df.columns]
+    _tbl_config = {
         "UiLink": st.column_config.LinkColumn("SAM.gov", display_text="Open", width="small"),
     }
-    edited = st.data_editor(
-        table,
-        column_config=config,
+    _sel_result = st.dataframe(
+        df,
+        column_config=_tbl_config,
         column_order=column_order,
-        disabled=[column for column in table.columns if column != "_shortlist"],
         hide_index=True,
         use_container_width=True,
-        num_rows="fixed",
         height=600,
-        key=_opp_editor_key,
+        on_select="rerun",
+        selection_mode="single-row",
+        key=_opp_table_key,
     )
-    chosen = edited[edited["_shortlist"]]
-    chosen_count = len(chosen)
 
-    # ── Action buttons ────────────────────────────────────────────────────────
-    if _opp_is_admin:
-        action, del_col, review_col, hint = st.columns([3, 2.5, 2, 2.5])
-    else:
-        action, review_col, hint = st.columns([3, 2, 5])
+    # ── Inline action card (appears below the table when a row is clicked) ────
+    _sel_rows = _sel_result.selection.rows
+    if _sel_rows:
+        _si         = _sel_rows[0]
+        _sel_row    = df.iloc[_si].to_dict()
+        _sel_df_idx = df.index[_si]
+        _sel_sheet  = int(_sel_df_idx) + 2
+        _sel_title  = str(_sel_row.get("Title", "") or "(No title)")
+        _sel_agency = str(_sel_row.get("Agency", "") or "—")
+        _sel_due    = str(_sel_row.get("Due Date", "") or "—")
+        _sel_sol    = str(_sel_row.get("Solicitation Number", "") or "")
+        _sel_link   = str(_sel_row.get("UiLink", "") or "").strip()
+        _sel_type   = str(_sel_row.get("Opportunity Type", "") or "—")
+        _sel_aside  = str(_sel_row.get("Normalized Set Aside", "") or "—")
 
-    with action:
-        if st.button(
-            f"⭐ Shortlist selected ({chosen_count})",
-            type="primary",
-            disabled=chosen_count == 0,
-            use_container_width=True,
-            key="move_to_shortlisted",
-        ):
-            keys = []
-            for _, row in chosen.iterrows():
-                key = str(row.get("Solicitation Number", "") or "").strip()
-                if not key:
-                    key = str(row.get("UiLink", "") or "").strip()
-                if key:
-                    keys.append(key)
-            try:
-                with st.spinner("Moving selected solicitations safely…"):
-                    from google_connector import shortlist_solicitations
-                    result = shortlist_solicitations(keys, st.session_state.get("username", "unknown"))
+        with st.container(border=True):
+            _ca, _cb = st.columns([5, 2])
+            with _ca:
+                st.markdown(f"**{_sel_title}**")
+                st.caption(
+                    f"Sol# {_sel_sol}  ·  {_sel_agency}  ·  Due: {_sel_due}  "
+                    f"·  {_sel_type}  ·  {_sel_aside}"
+                )
+            with _cb:
+                if _sel_link:
+                    st.link_button("🔗 Open on SAM.gov", _sel_link, use_container_width=True)
+
+            st.write("")
+            if _opp_is_admin:
+                _c1, _c2, _c3 = st.columns([2.5, 1.5, 1.5])
+            else:
+                _c1, _c2 = st.columns([2.5, 1.5])
+
+            def _do_shortlist_one():
+                _k = str(_sel_row.get("Solicitation Number") or _sel_row.get("UiLink") or "").strip()
                 try:
-                    from agent_state import log_user_activity
-                    log_user_activity(
-                        st.session_state.get("username", "unknown"),
-                        "shortlist",
-                        {"count": result["moved"], "solicitations": keys},
-                    )
-                except Exception:
-                    pass
-                _fetch_solicitations.clear()
-                _fetch_shortlisted.clear()
-                _fetch_urgent.clear()
-                st.session_state.pop("opportunities_data", None)
-                st.session_state.pop("sol_data", None)
-                st.session_state.pop("_opp_select_all", None)
-                st.success(f"Moved {result['moved']} solicitation(s) to Shortlisted.")
-                st.session_state.page = "shortlisted"
-                st.query_params["page"] = "shortlisted"
-                st.rerun()
-            except Exception as exc:
-                st.error(f"Shortlisting failed; no partial move was saved. {exc}")
-
-    if _opp_is_admin:
-        with del_col:
-            if chosen_count and st.button(f"🗑️ Delete ({chosen_count})", use_container_width=True,
-                                           key="opp_delete_btn"):
-                _sheet_rows = [int(idx) + 2 for idx in chosen.index]
-                try:
-                    with st.spinner(f"Deleting {chosen_count} row(s)…"):
-                        from google_connector import delete_expired_rows, SHEET_TAB_NAME
-                        delete_expired_rows(_sheet_rows, SHEET_TAB_NAME)
-                    _fetch_solicitations.clear()
+                    with st.spinner("Moving to Shortlisted…"):
+                        from google_connector import shortlist_solicitations
+                        shortlist_solicitations([_k] if _k else [], st.session_state.get("username", "unknown"))
+                    _fetch_solicitations.clear(); _fetch_shortlisted.clear(); _fetch_urgent.clear()
                     st.session_state.pop("opportunities_data", None)
-                    st.session_state.pop("_opp_select_all", None)
-                    st.session_state.pop(_opp_editor_key, None)
-                    st.toast(f"Deleted {chosen_count} row(s).", icon="✅")
+                    st.session_state.pop("sol_data", None)
+                    st.session_state.page = "shortlisted"
+                    st.query_params["page"] = "shortlisted"
                     st.rerun()
-                except Exception as exc:
-                    st.error(f"Delete failed: {exc}")
+                except Exception as _exc:
+                    st.error(f"Failed: {_exc}")
 
-    with review_col:
-        if chosen_count == 1 and st.button("👁 Review Details", use_container_width=True,
-                                            key="opp_review_btn"):
-            _row = chosen.iloc[0].to_dict()
-            _key = str(_row.get("Solicitation Number") or _row.get("UiLink") or "").strip()
-            _opp_sheet_row = int(chosen.index[0]) + 2
-            _opportunity_detail_dialog(_row, [_key] if _key else [], sheet_row=_opp_sheet_row)
-    with hint:
-        if _opp_is_admin:
-            st.caption("Select rows to Shortlist or Delete. Admins can bulk-delete.")
-        else:
-            st.caption("Check rows and Shortlist them, or select one to Review Details.")
+            with _c1:
+                if st.button("⭐ Move to Shortlisted", type="primary",
+                             use_container_width=True, key="opp_card_shortlist"):
+                    _do_shortlist_one()
+            with _c2:
+                if st.button("⏭ Skip", use_container_width=True, key="opp_card_skip"):
+                    # Bump version so the table re-renders without a selection
+                    st.session_state["_opp_tbl_ver"] = st.session_state.get("_opp_tbl_ver", 0) + 1
+                    st.rerun()
+            if _opp_is_admin:
+                with _c3:
+                    if st.button("🗑️ Delete", use_container_width=True, key="opp_card_delete"):
+                        try:
+                            with st.spinner("Deleting…"):
+                                from google_connector import delete_expired_rows, SHEET_TAB_NAME
+                                delete_expired_rows([_sel_sheet], SHEET_TAB_NAME)
+                            _fetch_solicitations.clear()
+                            st.session_state.pop("opportunities_data", None)
+                            st.session_state["_opp_tbl_ver"] = st.session_state.get("_opp_tbl_ver", 0) + 1
+                            st.toast("Row deleted.", icon="✅")
+                            st.rerun()
+                        except Exception as _exc:
+                            st.error(f"Delete failed: {_exc}")
 
 
 @st.fragment(run_every=1)
