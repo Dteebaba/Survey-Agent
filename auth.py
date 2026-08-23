@@ -389,9 +389,11 @@ def check_access():
             raw = None
 
         # CookieManager is a React component — on the first render after a page
-        # refresh the browser cookie data may not have arrived yet. Allow up to
-        # 2 extra reruns before concluding there is no valid cookie.
-        if raw is None:
+        # refresh the cookie data may not have arrived yet.  Allow up to 2
+        # extra reruns, but ONLY before the login form has been displayed.
+        # Once the form is shown (_login_form_seen flag is set) we must not
+        # rerun again or every "Sign In" button click gets silently discarded.
+        if raw is None and not st.session_state.get("_login_form_seen"):
             _tries = st.session_state.get("_auth_tries", 0)
             if _tries < 2:
                 st.session_state["_auth_tries"] = _tries + 1
@@ -422,6 +424,10 @@ def check_access():
                 _set_session_cookie(cm, username, role)
                 st.rerun()
                 return
+
+    # Mark that the form has been shown so the retry logic above won't
+    # fire again and eat subsequent Sign In button clicks.
+    st.session_state["_login_form_seen"] = True
 
     st.markdown(_LOGIN_CSS, unsafe_allow_html=True)
 
@@ -456,6 +462,7 @@ def check_access():
             st.session_state["authenticated"] = True
             st.session_state["role"]          = user_found["role"]
             st.session_state["username"]      = user_found["username"]
+            st.session_state.pop("_login_form_seen", None)
             if cm:
                 _set_session_cookie(cm, user_found["username"], user_found["role"])
             st.rerun()
