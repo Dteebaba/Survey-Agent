@@ -20,10 +20,10 @@ SPREADSHEET_FILE_ID = os.getenv("GOOGLE_SHEETS_ID", "151jig9_3v-__dHfk7TksitJYON
 
 # ── In-process raw-bytes cache ─────────────────────────────────────────────────
 # Avoids re-downloading the full xlsx on every write (Progress Report saves,
-# deletes, appends). TTL is 30 s; _save_and_upload() refreshes it immediately
-# after each upload so reads right after a write still see fresh data.
+# deletes, appends). TTL matches the Streamlit cache (3600 s); _save_and_upload()
+# refreshes it immediately after each upload so reads after writes see fresh data.
 _RAW_CACHE: dict = {"data": None, "ts": 0.0}
-_RAW_CACHE_TTL = 30  # seconds
+_RAW_CACHE_TTL = 3600  # seconds
 _WORKBOOK_LOCK = threading.RLock()
 
 
@@ -49,6 +49,15 @@ def _get_master_bytes() -> bytes:
 def _invalidate_raw_cache() -> None:
     _RAW_CACHE["data"] = None
     _RAW_CACHE["ts"]   = 0.0
+
+
+def warm_bytes_cache() -> None:
+    """Download the master workbook bytes into the in-process cache.
+    Safe to call from a background thread — no Streamlit dependency."""
+    try:
+        _get_master_bytes()
+    except Exception:
+        pass
 SHEET_TAB_NAME      = "Opportunities"
 SHORTLISTED_TAB_NAME = "Shortlisted"
 URGENT_TAB_NAME     = "Urgent"

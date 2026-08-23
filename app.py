@@ -187,16 +187,12 @@ if "app_initialized" not in st.session_state:
             log_user_activity(st.session_state.get("username", "unknown"), "login")
     except Exception:
         pass
-    # Warm all three sheet caches in the background so navigation is instant
-    def _preload_caches():
-        try:
-            _fetch_solicitations()
-            _fetch_shortlisted()
-            _fetch_urgent()
-        except Exception:
-            pass
-    import threading as _t2
-    _t2.Thread(target=_preload_caches, daemon=True).start()
+    # Pre-download the master workbook bytes so first navigation is instant.
+    # Calls only google_connector (no Streamlit context) — safe from a thread.
+    def _preload_bytes():
+        from google_connector import warm_bytes_cache
+        warm_bytes_cache()
+    threading.Thread(target=_preload_bytes, daemon=True).start()
 else:
     st.session_state.setdefault("page", "landing")
     st.session_state.setdefault("results_ready", False)
