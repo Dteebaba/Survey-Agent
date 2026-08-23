@@ -103,6 +103,15 @@ class ShortlistTests(unittest.TestCase):
 
         self.assertEqual(result, {"deleted": 1, "missing": ["SOL-999"]})
 
+    def test_forced_refresh_bypasses_raw_workbook_cache(self):
+        with patch.object(connector, "download_drive_file", side_effect=self.download) as download:
+            connector._get_master_bytes()
+            connector._get_master_bytes()
+            self.assertEqual(download.call_count, 1)
+            connector.refresh_bytes_cache()
+
+        self.assertEqual(download.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

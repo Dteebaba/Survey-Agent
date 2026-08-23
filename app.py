@@ -148,17 +148,17 @@ def _workspace_guide(kind: str):
 # Shared workspaces use a short TTL so team changes appear promptly. Manual
 # refresh and every successful write also clear the relevant cache immediately.
 # -------------------------------------------------
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def _fetch_solicitations():
     from google_connector import read_master_sheet
     return read_master_sheet()
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def _fetch_urgent():
     from google_connector import read_urgent_tab
     return read_urgent_tab()
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def _fetch_shortlisted():
     from google_connector import read_shortlisted_sheet
     return read_shortlisted_sheet()
@@ -1859,6 +1859,8 @@ def show_shortlisted():
             goto("solicitations")
     with col_refresh:
         if st.button("🔄 Refresh from Sheet"):
+            from google_connector import refresh_bytes_cache
+            refresh_bytes_cache()
             _fetch_shortlisted.clear()
             st.session_state.pop("sol_data", None)
             st.session_state.pop("sol_original_progress", None)
@@ -1993,6 +1995,8 @@ def show_solicitations():
             goto("shortlisted")
     with c_refresh:
         if st.button("🔄 Refresh", key="opp_refresh", use_container_width=True):
+            from google_connector import refresh_bytes_cache
+            refresh_bytes_cache()
             _fetch_solicitations.clear()
             st.session_state.pop("opportunities_data", None)
             st.rerun()
@@ -2074,13 +2078,15 @@ def show_solicitations():
     if st.session_state.get("_opp_prev_filter") != _opp_filter_id:
         st.session_state["_opp_prev_filter"] = _opp_filter_id
         st.session_state.pop("_opp_bulk_select", None)
+        st.session_state["opp_bulk_chk"] = False
+        st.session_state.pop("_opp_confirm_delete_all", None)
 
     _opp_bulk = st.session_state.get("_opp_bulk_select", False)
 
     # ── Bulk toolbar (Select All) ─────────────────────────────────────────────
     _ot1, _ot2, _ot3, _spacer_opp = st.columns([2, 3, 2.5, 2.5])
     with _ot1:
-        _bulk_chk = st.checkbox("Select all", key="opp_bulk_chk", value=_opp_bulk)
+        _bulk_chk = st.checkbox("Bulk actions for all shown", key="opp_bulk_chk")
     if _bulk_chk != _opp_bulk:
         st.session_state["_opp_bulk_select"] = _bulk_chk
         st.rerun()
@@ -2110,20 +2116,37 @@ def show_solicitations():
                     st.error(f"Shortlisting failed: {_exc}")
         if _opp_is_admin:
             with _ot3:
-                if st.button(f"🗑️ Delete all ({len(df)})", use_container_width=True,
-                             key="opp_delete_all"):
-                    _all_rows = [int(i) + 2 for i in df.index]
+                if not st.session_state.get("_opp_confirm_delete_all"):
+                    if st.button(f"🗑️ Delete all ({len(df)})", use_container_width=True,
+                                 key="opp_delete_all"):
+                        st.session_state["_opp_confirm_delete_all"] = True
+                        st.rerun()
+                elif st.button(f"Confirm delete {len(df)}", type="primary",
+                               use_container_width=True, key="opp_delete_all_confirm"):
+                    _all_keys = []
+                    for _, _row in df.iterrows():
+                        _key = str(_row.get("Solicitation Number", "") or "").strip() or str(
+                            _row.get("UiLink", "") or ""
+                        ).strip()
+                        if _key:
+                            _all_keys.append(_key)
                     try:
                         with st.spinner(f"Deleting {len(df)} rows…"):
-                            from google_connector import delete_expired_rows, SHEET_TAB_NAME
-                            delete_expired_rows(_all_rows, SHEET_TAB_NAME)
+                            from google_connector import delete_records_by_key, SHEET_TAB_NAME
+                            _deleted = delete_records_by_key(_all_keys, SHEET_TAB_NAME)
                         _fetch_solicitations.clear()
                         st.session_state.pop("opportunities_data", None)
                         st.session_state.pop("_opp_bulk_select", None)
-                        st.toast(f"Deleted {len(df)} rows.", icon="✅")
+                        st.session_state.pop("_opp_confirm_delete_all", None)
+                        st.toast(f"Deleted {_deleted['deleted']} rows.", icon="✅")
                         st.rerun()
                     except Exception as _exc:
                         st.error(f"Delete failed: {_exc}")
+            if st.session_state.get("_opp_confirm_delete_all"):
+                st.warning("This permanently deletes every opportunity currently shown by the filters.")
+                if st.button("Cancel delete", key="opp_delete_all_cancel"):
+                    st.session_state.pop("_opp_confirm_delete_all", None)
+                    st.rerun()
     else:
         with _ot2:
             st.caption("← Select All for bulk actions, or click any row to review it")
@@ -2143,7 +2166,7 @@ def show_solicitations():
         column_order=column_order,
         hide_index=True,
         use_container_width=True,
-        height=600,
+        height=440,
         on_select="rerun",
         selection_mode="single-row",
         key=_opp_table_key,
@@ -2155,12 +2178,12 @@ def show_solicitations():
         _si         = _sel_rows[0]
         _sel_row    = df.iloc[_si].to_dict()
         _sel_df_idx = df.index[_si]
-        _sel_sheet  = int(_sel_df_idx) + 2
         _sel_title  = str(_sel_row.get("Title", "") or "(No title)")
         _sel_agency = str(_sel_row.get("Agency", "") or "—")
         _sel_due    = str(_sel_row.get("Due Date", "") or "—")
         _sel_sol    = str(_sel_row.get("Solicitation Number", "") or "")
         _sel_link   = str(_sel_row.get("UiLink", "") or "").strip()
+        _sel_key    = _sel_sol.strip() or _sel_link
         _sel_type   = str(_sel_row.get("Opportunity Type", "") or "—")
         _sel_aside  = str(_sel_row.get("Normalized Set Aside", "") or "—")
 
@@ -2208,18 +2231,31 @@ def show_solicitations():
                     st.rerun()
             if _opp_is_admin:
                 with _c3:
-                    if st.button("🗑️ Delete", use_container_width=True, key="opp_card_delete"):
+                    _confirm_key = "_opp_confirm_delete_one"
+                    if st.session_state.get(_confirm_key) != _sel_key:
+                        if st.button("🗑️ Delete", use_container_width=True,
+                                     disabled=not _sel_key, key="opp_card_delete"):
+                            st.session_state[_confirm_key] = _sel_key
+                            st.rerun()
+                    elif st.button("Confirm delete", type="primary", use_container_width=True,
+                                   key="opp_card_delete_confirm"):
                         try:
                             with st.spinner("Deleting…"):
-                                from google_connector import delete_expired_rows, SHEET_TAB_NAME
-                                delete_expired_rows([_sel_sheet], SHEET_TAB_NAME)
+                                from google_connector import delete_records_by_key, SHEET_TAB_NAME
+                                _deleted = delete_records_by_key([_sel_key], SHEET_TAB_NAME)
                             _fetch_solicitations.clear()
                             st.session_state.pop("opportunities_data", None)
+                            st.session_state.pop(_confirm_key, None)
                             st.session_state["_opp_tbl_ver"] = st.session_state.get("_opp_tbl_ver", 0) + 1
-                            st.toast("Row deleted.", icon="✅")
+                            st.toast(f"Deleted {_deleted['deleted']} row.", icon="✅")
                             st.rerun()
                         except Exception as _exc:
                             st.error(f"Delete failed: {_exc}")
+                if st.session_state.get("_opp_confirm_delete_one") == _sel_key:
+                    st.warning("Delete this opportunity permanently?")
+                    if st.button("Cancel", key="opp_card_delete_cancel"):
+                        st.session_state.pop("_opp_confirm_delete_one", None)
+                        st.rerun()
 
 
 @st.fragment(run_every=1)

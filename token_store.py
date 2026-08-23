@@ -15,6 +15,15 @@ _TOKEN_LOCK = threading.Lock()
 _TOKEN_CACHE = {"token": None, "expires_at": None}
 
 
+def _utc_expiry(value, fallback: datetime) -> datetime:
+    """Normalize google-auth's sometimes-naive UTC expiry timestamp."""
+    if value is None:
+        return fallback
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _get_service_account_credentials():
     sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     if not sa_json:
@@ -59,7 +68,9 @@ def get_token(service: str = "google-drive") -> str:
         credentials.refresh(request)
 
         _TOKEN_CACHE["token"] = credentials.token
-        _TOKEN_CACHE["expires_at"] = credentials.expiry or (now + timedelta(minutes=50))
+        _TOKEN_CACHE["expires_at"] = _utc_expiry(
+            credentials.expiry, now + timedelta(minutes=50)
+        )
 
         logger.info("✅ Service account token obtained")
         return credentials.token

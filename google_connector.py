@@ -20,10 +20,10 @@ SPREADSHEET_FILE_ID = os.getenv("GOOGLE_SHEETS_ID", "151jig9_3v-__dHfk7TksitJYON
 
 # ── In-process raw-bytes cache ─────────────────────────────────────────────────
 # Avoids re-downloading the full xlsx on every write (Progress Report saves,
-# deletes, appends). TTL matches the Streamlit cache (3600 s); _save_and_upload()
-# refreshes it immediately after each upload so reads after writes see fresh data.
+# deletes, appends). Keep this short because the scraper updates the same Excel
+# file outside this process. _save_and_upload() refreshes it after local writes.
 _RAW_CACHE: dict = {"data": None, "ts": 0.0}
-_RAW_CACHE_TTL = 3600  # seconds
+_RAW_CACHE_TTL = 30  # seconds
 _WORKBOOK_LOCK = threading.RLock()
 
 
@@ -38,12 +38,14 @@ def _serialized_workbook_write(func):
     return wrapped
 
 
-def _get_master_bytes() -> bytes:
-    """Return master xlsx bytes, from cache if ≤30 s old."""
-    if _RAW_CACHE["data"] is None or (time.monotonic() - _RAW_CACHE["ts"]) > _RAW_CACHE_TTL:
-        _RAW_CACHE["data"] = download_drive_file(SPREADSHEET_FILE_ID)
-        _RAW_CACHE["ts"]   = time.monotonic()
-    return _RAW_CACHE["data"]
+def _get_master_bytes(force: bool = False) -> bytes:
+    """Return workbook bytes, coalescing concurrent cache misses."""
+    with _WORKBOOK_LOCK:
+        expired = (time.monotonic() - _RAW_CACHE["ts"]) > _RAW_CACHE_TTL
+        if force or _RAW_CACHE["data"] is None or expired:
+            _RAW_CACHE["data"] = download_drive_file(SPREADSHEET_FILE_ID)
+            _RAW_CACHE["ts"] = time.monotonic()
+        return _RAW_CACHE["data"]
 
 
 def _invalidate_raw_cache() -> None:
@@ -58,6 +60,13 @@ def warm_bytes_cache() -> None:
         _get_master_bytes()
     except Exception:
         pass
+
+
+def refresh_bytes_cache() -> None:
+    """Force the next workbook read to see the latest scraper upload."""
+    _get_master_bytes(force=True)
+
+
 SHEET_TAB_NAME      = "Opportunities"
 SHORTLISTED_TAB_NAME = "Shortlisted"
 URGENT_TAB_NAME     = "Urgent"
