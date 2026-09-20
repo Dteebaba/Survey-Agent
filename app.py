@@ -181,10 +181,8 @@ if "app_initialized" not in st.session_state:
     st.session_state["dark_mode"] = False
     try:
         import threading as _threading
-        from agent_state import sync_from_gist, log_user_activity
+        from agent_state import sync_from_gist
         _threading.Thread(target=sync_from_gist, daemon=True).start()
-        if not _restore_page:  # only log login event on fresh login, not refresh
-            log_user_activity(st.session_state.get("username", "unknown"), "login")
     except Exception:
         pass
     # Pre-download the master workbook bytes so first navigation is instant.
@@ -229,15 +227,8 @@ with st.sidebar:
         st.rerun()
     st.divider()
     if st.button("Sign Out", use_container_width=True):
-        from auth import clear_auth_cookie
-        try:
-            from agent_state import log_user_activity
-            log_user_activity(st.session_state.get("username", "unknown"), "logout")
-        except Exception:
-            pass
-        clear_auth_cookie()
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
+        from auth import sign_out
+        sign_out()
         st.rerun()
 
 
@@ -248,6 +239,42 @@ def goto(page: str):
     except Exception:
         pass
     st.rerun()
+
+
+def track_page_view():
+    """Persist page transitions and time spent on the preceding app page."""
+    from agent_state import log_user_activity
+
+    page = st.session_state.get("page", "unknown")
+    previous = st.session_state.get("audit_current_page")
+    now = datetime.datetime.utcnow()
+    username = st.session_state.get("username", "unknown")
+    session_id = st.session_state.get("audit_session_id")
+
+    if previous == page:
+        return
+
+    entered_at = st.session_state.get("audit_page_entered_at")
+    if previous and entered_at:
+        try:
+            seconds = max(0, round((now - datetime.datetime.fromisoformat(entered_at)).total_seconds()))
+        except (TypeError, ValueError):
+            seconds = None
+        log_user_activity(username, "page_exit", {
+            "session_id": session_id, "page": previous, "duration_seconds": seconds,
+        })
+
+    st.session_state["audit_current_page"] = page
+    st.session_state["audit_page_entered_at"] = now.isoformat()
+    log_user_activity(username, "page_view", {
+        "session_id": session_id, "page": page,
+    })
+
+
+# This is run once per app render.  It records the initial page and each page
+# change initiated through goto(), including browser-back navigation that
+# reconstructs the page from the URL.
+track_page_view()
 
 
 def log_event(action: str, status: str, message: str = "", extra: dict | None = None):
@@ -587,10 +614,8 @@ def show_welcome():
             unsafe_allow_html=True,
         )
         if st.button("Sign Out", use_container_width=True, key="welcome_signout"):
-            from auth import clear_auth_cookie
-            clear_auth_cookie()
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
+            from auth import sign_out
+            sign_out()
             st.rerun()
 
 
@@ -742,10 +767,8 @@ def show_landing():
         st.write("")
         st.write("")
         if st.button("Sign Out", use_container_width=True, key="landing_signout"):
-            from auth import clear_auth_cookie
-            clear_auth_cookie()
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
+            from auth import sign_out
+            sign_out()
             st.rerun()
 
     st.write("")
@@ -1123,7 +1146,11 @@ def _opportunity_detail_dialog(row: dict, sol_keys: list, sheet_row: int = 0):
                         from agent_state import log_user_activity
                         log_user_activity(
                             st.session_state.get("username", "unknown"),
-                            "shortlist", {"count": result["moved"], "solicitations": sol_keys},
+                            "shortlist", {
+                                "count": result["moved"], "solicitations": sol_keys,
+                                "session_id": st.session_state.get("audit_session_id"),
+                                "page": st.session_state.get("page"),
+                            },
                         )
                     except Exception:
                         pass
@@ -1702,7 +1729,11 @@ def _sol_filter_and_table(df):
                 row_pos = df_idx - 2  # sheet row → df index
                 sol_num = full_df_snap.iloc[row_pos].get("Solicitation Number", "") if row_pos < len(full_df_snap) else ""
                 old_val = str(original_prog.iloc[row_pos] if row_pos < len(original_prog) else "")
-                _changed.append({"solicitation": str(sol_num), "old_status": old_val, "new_status": str(new_val)})
+                _changed.append({
+                    "solicitation": str(sol_num), "old_status": old_val, "new_status": str(new_val),
+                    "session_id": st.session_state.get("audit_session_id"),
+                    "page": st.session_state.get("page"),
+                })
 
             def _bg_save(u=_keyed_progress, r=_save_result, actor=_actor, changed=_changed):
                 try:
@@ -1751,6 +1782,8 @@ def _sol_filter_and_table(df):
 
             _assigned_result: dict = {}
             _actor2 = st.session_state.get("username", "unknown")
+            _audit_session2 = st.session_state.get("audit_session_id")
+            _audit_page2 = st.session_state.get("page")
             _keyed_assigned = {}
             for _sheet_row, _new_val in _assigned_updates.items():
                 _row = full_df.iloc[int(_sheet_row) - 2]
@@ -1760,7 +1793,8 @@ def _sol_filter_and_table(df):
                 if _key:
                     _keyed_assigned[_key] = {"Assigned To": _new_val}
 
-            def _bg_save_assigned(u=_keyed_assigned, r=_assigned_result, actor=_actor2):
+            def _bg_save_assigned(u=_keyed_assigned, r=_assigned_result, actor=_actor2,
+                                  session_id=_audit_session2, page=_audit_page2):
                 try:
                     from google_connector import update_records_by_key, SHORTLISTED_TAB_NAME
                     _saved = update_records_by_key(u, SHORTLISTED_TAB_NAME)
@@ -1768,7 +1802,9 @@ def _sol_filter_and_table(df):
                     r["missing"] = _saved["missing"]
                     r["ok"] = True
                     from agent_state import log_user_activity
-                    log_user_activity(actor, "assigned_to_update", {"rows": list(u.keys())})
+                    log_user_activity(actor, "assigned_to_update", {
+                        "rows": list(u.keys()), "session_id": session_id, "page": page,
+                    })
                 except Exception as exc:
                     r["error"] = str(exc)
 
@@ -1802,6 +1838,8 @@ def _sol_filter_and_table(df):
 
             _award_result: dict = {}
             _actor3 = st.session_state.get("username", "unknown")
+            _audit_session3 = st.session_state.get("audit_session_id")
+            _audit_page3 = st.session_state.get("page")
             _keyed_award = {}
             for _sheet_row, _new_val in _award_updates.items():
                 _row = full_df.iloc[int(_sheet_row) - 2]
@@ -1811,7 +1849,8 @@ def _sol_filter_and_table(df):
                 if _key:
                     _keyed_award[_key] = {"Award Status": _new_val}
 
-            def _bg_save_award(u=_keyed_award, r=_award_result, actor=_actor3):
+            def _bg_save_award(u=_keyed_award, r=_award_result, actor=_actor3,
+                               session_id=_audit_session3, page=_audit_page3):
                 try:
                     from google_connector import update_records_by_key, SHORTLISTED_TAB_NAME
                     _saved = update_records_by_key(u, SHORTLISTED_TAB_NAME)
@@ -1819,7 +1858,9 @@ def _sol_filter_and_table(df):
                     r["missing"] = _saved["missing"]
                     r["ok"] = True
                     from agent_state import log_user_activity
-                    log_user_activity(actor, "award_status_update", {"rows": list(u.keys())})
+                    log_user_activity(actor, "award_status_update", {
+                        "rows": list(u.keys()), "session_id": session_id, "page": page,
+                    })
                 except Exception as exc:
                     r["error"] = str(exc)
 
@@ -2912,21 +2953,25 @@ def show_admin():
                                     st.rerun()
 
     with tab2:
-        logs = st.session_state.activity_log
+        from agent_state import get_user_activity_log
+        logs = get_user_activity_log()
         st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-        st.markdown("### Activity Log")
+        st.markdown("### Persistent Account Activity Log")
         if not logs:
             st.info("No activity logged yet.")
         else:
             import pandas as pd
             df_logs = pd.DataFrame(logs)
             if 'timestamp' in df_logs.columns:
-                df_logs['timestamp'] = pd.to_datetime(df_logs['timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
-            st.dataframe(df_logs, use_container_width=True)
-            if st.button("Clear All Logs", type="secondary"):
-                st.session_state.activity_log = []
-                st.success("Activity logs cleared.")
-                st.rerun()
+                df_logs['timestamp'] = pd.to_datetime(df_logs['timestamp'], utc=True).dt.strftime('%Y-%m-%d %H:%M:%S UTC')
+            st.caption("Includes password logins, automatic/manual logouts, page visits, and saved record changes.")
+            st.dataframe(df_logs, use_container_width=True, hide_index=True)
+            st.download_button(
+                "Download Account Activity CSV",
+                df_logs.to_csv(index=False).encode(),
+                "account_activity_log.csv",
+                mime="text/csv",
+            )
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -2987,30 +3032,45 @@ def show_staff():
     for uname in usernames:
         u_log = [e for e in all_log if e.get("username") == uname]
 
-        logins   = [e for e in u_log if e.get("action") == "login"]
-        logouts  = [e for e in u_log if e.get("action") == "logout"]
-        updates  = [e for e in u_log if e.get("action") == "progress_update"]
+        logins = [e for e in u_log if e.get("action") == "login"]
+        logouts = [e for e in u_log if e.get("action") == "logout"]
+        updates = [e for e in u_log if e.get("action") == "progress_update"]
+        page_views = [e for e in u_log if e.get("action") == "page_view"]
+        saved_actions = [e for e in u_log if e.get("action") in {
+            "progress_update", "assigned_to_update", "award_status_update", "shortlist",
+        }]
 
-        # Estimate hours: pair each login with the next logout (or cap at 2h)
-        login_times  = sorted([e["timestamp"] for e in logins])
-        logout_times = sorted([e["timestamp"] for e in logouts])
-        total_mins   = 0
-        li = 0
-        for lt in logout_times:
-            while li < len(login_times) and login_times[li] < lt:
-                li += 1
-            if li > 0:
+        # Session IDs make each login/logout pair unambiguous.  Sessions that
+        # have not yet ended are intentionally shown as open, not guessed.
+        sessions = {}
+        for event in u_log:
+            sid = event.get("session_id")
+            if not sid:
+                continue
+            sessions.setdefault(sid, {})
+            if event.get("action") == "login":
+                sessions[sid]["login"] = event.get("timestamp")
+            elif event.get("action") == "logout":
+                sessions[sid]["logout"] = event.get("timestamp")
+        total_mins = 0
+        open_sessions = 0
+        for session in sessions.values():
+            started, ended = session.get("login"), session.get("logout")
+            if started and ended:
                 try:
-                    gap = (dt.fromisoformat(lt) - dt.fromisoformat(login_times[li - 1])).total_seconds() / 60
-                    total_mins += min(gap, 120)
-                except Exception:
+                    total_mins += max(0, (dt.fromisoformat(ended) - dt.fromisoformat(started)).total_seconds() / 60)
+                except (TypeError, ValueError):
                     pass
-        total_mins += max(0, len(logins) - len(logouts)) * 15
+            elif started:
+                open_sessions += 1
 
         row = {
             "User":          uname,
-            "Logins":        len(logins),
-            "Active Hours":  f"{total_mins / 60:.1f}h",
+            "Password Logins": len(logins),
+            "Active Hours":    f"{total_mins / 60:.1f}h",
+            "Open Sessions":   open_sessions,
+            "Pages Visited":   len(page_views),
+            "Saved Actions":   len(saved_actions),
             "Total Updates": len(updates),
         }
         for full, short in _STATUS_LABELS.items():
@@ -3021,7 +3081,9 @@ def show_staff():
         df_summary = pd.DataFrame(rows)
 
         # Totals row
-        totals = {"User": "TOTAL", "Logins": "", "Active Hours": ""}
+        totals = {"User": "TOTAL", "Password Logins": "", "Active Hours": "", "Open Sessions": ""}
+        totals["Pages Visited"] = df_summary["Pages Visited"].sum()
+        totals["Saved Actions"] = df_summary["Saved Actions"].sum()
         totals["Total Updates"] = df_summary["Total Updates"].sum()
         for short in _STATUS_LABELS.values():
             totals[short] = df_summary[short].sum()
@@ -3035,8 +3097,11 @@ def show_staff():
             hide_index=True,
             column_config={
                 "User":          st.column_config.TextColumn("User",         width="small"),
-                "Logins":        st.column_config.TextColumn("Logins",       width="small"),
+                "Password Logins": st.column_config.TextColumn("Logins",     width="small"),
                 "Active Hours":  st.column_config.TextColumn("Active Hrs",   width="small"),
+                "Open Sessions": st.column_config.NumberColumn("Open",       width="small"),
+                "Pages Visited": st.column_config.NumberColumn("Pages",      width="small"),
+                "Saved Actions": st.column_config.NumberColumn("Actions",    width="small"),
                 "Total Updates": st.column_config.NumberColumn("Total",      width="small"),
                 "Submitted":     st.column_config.NumberColumn("Submitted",  width="small"),
                 "In Progress":   st.column_config.NumberColumn("In Progress",width="small"),
@@ -3053,13 +3118,110 @@ def show_staff():
     else:
         st.info("No activity recorded in the selected date range.")
 
+    # ── Session activity reports ───────────────────────────────────────────
+    st.divider()
+    st.subheader("Session Activity Reports")
+    st.caption("One report per successful password sign-in. Times are shown in UTC.")
+
+    _session_events = {}
+    for event in all_log:
+        _sid = event.get("session_id")
+        if _sid:
+            _session_events.setdefault(_sid, []).append(event)
+
+    _session_rows = []
+    _session_details = {}
+    _saved_action_types = {
+        "progress_update", "assigned_to_update", "award_status_update", "shortlist",
+    }
+    for _sid, _events in _session_events.items():
+        _events = sorted(_events, key=lambda event: event.get("timestamp", ""))
+        _login = next((event for event in _events if event.get("action") == "login"), None)
+        if not _login:
+            continue
+        _logout = next((event for event in reversed(_events) if event.get("action") == "logout"), None)
+        _pages = []
+        for event in _events:
+            if event.get("action") == "page_view" and event.get("page") and event["page"] not in _pages:
+                _pages.append(event["page"].replace("_", " ").title())
+        _actions = [event for event in _events if event.get("action") in _saved_action_types]
+        _duration = "Open"
+        if _logout:
+            try:
+                _minutes = max(0, round((
+                    dt.fromisoformat(_logout["timestamp"]) - dt.fromisoformat(_login["timestamp"])
+                ).total_seconds() / 60))
+                _duration = f"{_minutes} min"
+            except (KeyError, TypeError, ValueError):
+                _duration = "Unavailable"
+        _label = f"{_login.get('username', 'Unknown')} — {_login.get('timestamp', '')[:16]} — {_sid[:8]}"
+        _session_rows.append({
+            "Session": _label,
+            "User": _login.get("username", "Unknown"),
+            "Login": _login.get("timestamp", ""),
+            "Logout": _logout.get("timestamp", "") if _logout else "",
+            "Duration": _duration,
+            "End Reason": _logout.get("reason", "") if _logout else "Open",
+            "Pages": " → ".join(_pages) or "No page events",
+            "Saved Actions": len(_actions),
+        })
+        _session_details[_label] = _events
+
+    if _session_rows:
+        _session_df = pd.DataFrame(_session_rows).sort_values("Login", ascending=False)
+        for _time_col in ("Login", "Logout"):
+            _session_df[_time_col] = _session_df[_time_col].apply(
+                lambda value: dt.fromisoformat(value).strftime("%b %d, %Y %H:%M UTC") if value else ""
+            )
+        st.dataframe(_session_df, use_container_width=True, hide_index=True)
+        _selected_session = st.selectbox(
+            "View a session timeline",
+            list(_session_df["Session"]),
+            key="staff_session_timeline",
+        )
+        _timeline_rows = []
+        for event in _session_details[_selected_session]:
+            _event = event.get("action", "event").replace("_", " ").title()
+            _detail_parts = []
+            if event.get("page"):
+                _detail_parts.append(f"Page: {event['page']}")
+            if event.get("solicitation"):
+                _detail_parts.append(f"Solicitation: {event['solicitation']}")
+            if event.get("new_status"):
+                _detail_parts.append(f"Status: {event['new_status']}")
+            if event.get("duration_seconds") is not None:
+                _detail_parts.append(f"Page time: {round(event['duration_seconds'] / 60, 1)} min")
+            if event.get("reason"):
+                _detail_parts.append(f"Reason: {event['reason'].replace('_', ' ')}")
+            _timeline_rows.append({
+                "Time": event.get("timestamp", ""),
+                "Event": _event,
+                "Details": " | ".join(_detail_parts),
+            })
+        _timeline_df = pd.DataFrame(_timeline_rows)
+        _timeline_df["Time"] = _timeline_df["Time"].apply(
+            lambda value: dt.fromisoformat(value).strftime("%b %d, %Y %H:%M UTC") if value else ""
+        )
+        st.dataframe(_timeline_df, use_container_width=True, hide_index=True)
+        st.download_button(
+            "Download Session Report CSV",
+            _timeline_df.to_csv(index=False).encode(),
+            "session_activity_report.csv",
+            mime="text/csv",
+        )
+    else:
+        st.info("No password-login sessions were recorded in the selected date range.")
+
     # ── Detailed activity log ─────────────────────────────────
     st.divider()
     st.subheader("Detailed Activity Log")
 
     user_filter = st.selectbox("Filter by user", ["All"] + usernames, key="staff_user_filter")
     action_filter = st.selectbox(
-        "Filter by action", ["All", "login", "logout", "progress_update"],
+        "Filter by action", [
+            "All", "login", "logout", "session_restored", "page_view", "page_exit",
+            "progress_update", "assigned_to_update", "award_status_update", "shortlist",
+        ],
         key="staff_action_filter"
     )
 

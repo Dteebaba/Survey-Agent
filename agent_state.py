@@ -348,7 +348,7 @@ def is_pipeline_running() -> tuple:
 # User activity log
 # ─────────────────────────────────────────────
 
-def log_user_activity(username: str, action: str, details: dict = None):
+def log_user_activity(username: str, action: str, details: dict = None, timestamp: str = None):
     """
     Log a user action. action examples:
       "login", "logout", "progress_update"
@@ -357,7 +357,7 @@ def log_user_activity(username: str, action: str, details: dict = None):
     """
     state = _load()
     entry = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": timestamp or datetime.utcnow().isoformat(),
         "username":  username,
         "action":    action,
     }

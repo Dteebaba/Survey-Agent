@@ -5,6 +5,7 @@ import hmac
 import base64
 import requests
 import os
+import uuid
 from datetime import datetime, timedelta
 
 try:
@@ -14,23 +15,24 @@ except ImportError:
     _COOKIES_AVAILABLE = False
 
 _SESSION_COOKIE      = "almor_session"
-_INACTIVITY_MINUTES  = 10   # session expires after this many idle minutes
+_INACTIVITY_MINUTES  = 15   # session expires after this many idle minutes
 _COOKIE_HOURS        = 8    # browser stores the cookie for 8 hours
 
 
 # ── Cookie helpers ────────────────────────────────────────────────────────────
 
-def _cm():
+def _cm(key: str = "almor_auth_cm"):
     """Return a CookieManager instance (one per Streamlit session via key)."""
     if not _COOKIES_AVAILABLE:
         return None
-    return stx.CookieManager(key="almor_auth_cm")
+    return stx.CookieManager(key=key)
 
 
-def _pack_session(username: str, role: str) -> str:
+def _pack_session(username: str, role: str, session_id: str) -> str:
     payload = json.dumps({
         "u": username,
         "r": role,
+        "sid": session_id,
         "t": datetime.utcnow().isoformat(),
     }, separators=(",", ":"))
     secret = _session_secret()
@@ -50,30 +52,31 @@ def _session_secret() -> bytes | None:
     return value.encode("utf-8") if value else None
 
 
-def _unpack_session(raw: str):
-    """Return (username, role) or (None, None) if expired or invalid."""
+def _unpack_session(raw: str, allow_expired: bool = False):
+    """Return (username, role, session_id, expired, issued_at) for a signed cookie."""
     try:
         encoded_payload, encoded_signature = raw.split(".", 1)
         payload = base64.urlsafe_b64decode(encoded_payload.encode("ascii"))
         signature = base64.urlsafe_b64decode(encoded_signature.encode("ascii"))
         secret = _session_secret()
         if not secret:
-            return None, None
+            return None, None, None, False, None
         expected = hmac.new(secret, payload, hashlib.sha256).digest()
         if not hmac.compare_digest(signature, expected):
-            return None, None
+            return None, None, None, False, None
         d = json.loads(payload.decode("utf-8"))
         age = (datetime.utcnow() - datetime.fromisoformat(d["t"])).total_seconds()
-        if age > _INACTIVITY_MINUTES * 60:
-            return None, None
-        return d["u"], d["r"]
+        expired = age > _INACTIVITY_MINUTES * 60
+        if expired and not allow_expired:
+            return None, None, None, True, d.get("t")
+        return d["u"], d["r"], d.get("sid"), expired, d.get("t")
     except Exception:
-        return None, None
+        return None, None, None, False, None
 
 
-def _set_session_cookie(cm, username: str, role: str):
+def _set_session_cookie(cm, username: str, role: str, session_id: str):
     try:
-        value = _pack_session(username, role)
+        value = _pack_session(username, role, session_id)
         if not value:
             return
         cm.set(
@@ -88,12 +91,50 @@ def _set_session_cookie(cm, username: str, role: str):
 
 def clear_auth_cookie():
     """Delete the session cookie — call on sign-out."""
-    cm = _cm()
+    cm = _cm("almor_auth_clear_cm")
     if cm:
         try:
             cm.delete(_SESSION_COOKIE, key="del_sc")
         except Exception:
             pass
+
+
+def _write_audit(username: str, action: str, details: dict | None = None, timestamp: str = None):
+    """Best-effort audit write. Authentication must never fail because logging fails."""
+    try:
+        from agent_state import log_user_activity
+        log_user_activity(username, action, details, timestamp=timestamp)
+    except Exception:
+        pass
+
+
+def _end_authenticated_session(reason: str, ended_at: datetime | None = None):
+    """Persist the end event before removing the browser's authenticated state."""
+    username = st.session_state.get("username", "unknown")
+    session_id = st.session_state.get("audit_session_id")
+    ended_at = ended_at or datetime.utcnow()
+    page = st.session_state.get("audit_current_page")
+    entered_at = st.session_state.get("audit_page_entered_at")
+    if page and entered_at:
+        try:
+            duration = max(0, round((ended_at - datetime.fromisoformat(entered_at)).total_seconds()))
+        except (TypeError, ValueError):
+            duration = None
+        _write_audit(username, "page_exit", {
+            "session_id": session_id, "page": page, "duration_seconds": duration,
+            "reason": reason,
+        }, timestamp=ended_at.isoformat())
+    _write_audit(username, "logout", {
+        "session_id": session_id, "reason": reason,
+    }, timestamp=ended_at.isoformat())
+    clear_auth_cookie()
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+
+
+def sign_out():
+    """End the current audited session from any in-app Sign Out control."""
+    _end_authenticated_session("manual")
 
 
 def get_gist_config():
@@ -376,6 +417,32 @@ def check_access():
     # same render cycle, clear_auth_cookie() will create one too, causing a
     # StreamlitDuplicateElementKey on the shared "almor_auth_cm" key.
     if st.session_state.get("authenticated"):
+        # Streamlit can only observe inactivity when the browser next sends an
+        # event.  On that event, close the session before accepting new work.
+        last_seen = st.session_state.get("audit_last_seen_at")
+        if last_seen:
+            try:
+                idle_seconds = (datetime.utcnow() - datetime.fromisoformat(last_seen)).total_seconds()
+            except ValueError:
+                idle_seconds = 0
+            if idle_seconds >= _INACTIVITY_MINUTES * 60:
+                _end_authenticated_session(
+                    "inactivity_timeout",
+                    datetime.fromisoformat(last_seen) + timedelta(minutes=_INACTIVITY_MINUTES),
+                )
+                st.rerun()
+                return
+        st.session_state["audit_last_seen_at"] = datetime.utcnow().isoformat()
+        # Refresh after each real Streamlit interaction so active use extends
+        # the 15-minute cookie window; an idle browser is rejected on return.
+        cm = _cm()
+        if cm:
+            _set_session_cookie(
+                cm,
+                st.session_state.get("username", ""),
+                st.session_state.get("role", "user"),
+                st.session_state.get("audit_session_id", ""),
+            )
         return
 
     # ── Not yet authenticated — safe to create the CookieManager now ───────
@@ -402,7 +469,21 @@ def check_access():
         st.session_state.pop("_auth_tries", None)
 
         if raw:
-            username, role = _unpack_session(raw)
+            username, role, session_id, expired, issued_at = _unpack_session(raw, allow_expired=True)
+            if expired and username:
+                try:
+                    timeout_at = datetime.fromisoformat(issued_at) + timedelta(minutes=_INACTIVITY_MINUTES)
+                except (TypeError, ValueError):
+                    timeout_at = datetime.utcnow()
+                _write_audit(username, "logout", {
+                    "session_id": session_id,
+                    "reason": "inactivity_timeout",
+                }, timestamp=timeout_at.isoformat())
+                try:
+                    cm.delete(_SESSION_COOKIE, key="del_expired_sc")
+                except Exception:
+                    pass
+                username = None
             if username:
                 current_user = next(
                     (u for u in load_users() if u.get("username", "").lower() == username.lower()),
@@ -421,7 +502,13 @@ def check_access():
                 st.session_state["authenticated"] = True
                 st.session_state["username"]      = username
                 st.session_state["role"]          = role
-                _set_session_cookie(cm, username, role)
+                # A cookie restore is auditable, but it is not counted as a
+                # password login.  The original session ID is preserved.
+                st.session_state["audit_session_id"] = session_id or str(uuid.uuid4())
+                st.session_state["audit_last_seen_at"] = datetime.utcnow().isoformat()
+                _write_audit(username, "session_restored", {
+                    "session_id": st.session_state["audit_session_id"],
+                })
                 st.rerun()
                 return
 
@@ -459,12 +546,21 @@ def check_access():
                     break
 
         if user_found:
+            session_id = str(uuid.uuid4())
             st.session_state["authenticated"] = True
             st.session_state["role"]          = user_found["role"]
             st.session_state["username"]      = user_found["username"]
+            st.session_state["audit_session_id"] = session_id
+            st.session_state["audit_last_seen_at"] = datetime.utcnow().isoformat()
             st.session_state.pop("_login_form_seen", None)
             if cm:
-                _set_session_cookie(cm, user_found["username"], user_found["role"])
+                _set_session_cookie(cm, user_found["username"], user_found["role"], session_id)
+            # Record at the point a password has been verified.  It is not
+            # dependent on the current URL or on app initialisation.
+            _write_audit(user_found["username"], "login", {
+                "session_id": session_id,
+                "auth_method": "password",
+            })
             st.rerun()
         else:
             with card:
